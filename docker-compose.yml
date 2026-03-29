@@ -1,0 +1,45 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stripedesk-web
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    volumes:
+      - .:/var/www/html
+    environment:
+      APACHE_DOCUMENT_ROOT: /var/www/html/public
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - stripedesk
+
+  db:
+    image: mysql:8.0
+    container_name: stripedesk-db
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-stripedesk}
+      MYSQL_USER: ${MYSQL_USER:-stripedesk}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-stripedesk}
+    volumes:
+      - stripedesk_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - stripedesk
+
+networks:
+  stripedesk:
+    driver: bridge
+
+volumes:
+  stripedesk_mysql_data:

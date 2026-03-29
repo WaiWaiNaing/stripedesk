@@ -1,0 +1,23 @@
+{
+    "name": "stripedesk/app",
+    "description": "StripeDesk",
+    "require": {
+        "php": ">=7.3",
+        "codeigniter/framework": "3.1.13",
+        "firebase/php-jwt": "^5.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "Stripedesk\\": "application/Stripedesk/"
+        },
+        "classmap": [
+            "application/core/Api_base_controller.php"
+        ]
+    },
+    "config": {
+        "sort-packages": true,
+        "audit": {
+            "block-insecure": false
+        }
+    }
+}

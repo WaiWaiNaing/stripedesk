@@ -1,0 +1,32 @@
+# Environment (keep .env.example committed)
+.env
+.env.local
+.env.*.local
+
+# Composer
+/vendor/
+
+# CodeIgniter
+/application/logs/*
+!/application/logs/index.html
+/application/cache/*
+!/application/cache/index.html
+
+# PHP
+*.log
+.phpunit.result.cache
+.php_cs.cache
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Docker (optional local overrides)
+docker-compose.override.yml

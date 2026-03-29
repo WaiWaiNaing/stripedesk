@@ -1,7 +1,7 @@
 <?php
 defined('BASEPATH') OR exit('No direct script access allowed');
 
-class Currency_model extends Auditable_model
+class Currency_model extends MY_Model
 {
     protected $table = 'currencies';
 

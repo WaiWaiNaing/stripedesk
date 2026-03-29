@@ -1,7 +1,7 @@
 <?php
 defined('BASEPATH') OR exit('No direct script access allowed');
 
-class User_model extends Auditable_model
+class User_model extends MY_Model
 {
     protected $table = 'users';
 
@@ -15,7 +15,9 @@ class User_model extends Auditable_model
 
     public function get_by_email($email)
     {
-        return $this->db->get_where($this->table, array('email' => $email))->row();
+        $this->db->where('email', $email);
+        $this->db->where('deleted_at', null);
+        return $this->db->get($this->table)->row();
     }
 
     public function get_by_api_token($token)

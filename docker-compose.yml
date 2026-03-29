@@ -19,6 +19,7 @@ services:
   db:
     image: mysql:8.0
     container_name: stripedesk-db
+    command: --default-authentication-plugin=mysql_native_password
     ports:
       - "${DB_PORT:-3306}:3306"
     environment:

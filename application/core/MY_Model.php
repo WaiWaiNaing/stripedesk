@@ -1,11 +1,18 @@
 <?php
 defined('BASEPATH') OR exit('No direct script access allowed');
 
-class Base_Model extends CI_Model
+class MY_Model extends CI_Model
 {
     protected $table = '';
     protected $primary_key = 'id';
     protected $allowed_fields = array();
+    protected $audit_fields = array(
+        'created_at',
+        'created_by',
+        'updated_by',
+        'updated_at',
+        'deleted_at',
+    );
 
     public function __construct()
     {
@@ -55,14 +62,33 @@ class Base_Model extends CI_Model
         return $this->db->update($this->table, $row);
     }
 
+    public function soft_deactivate($id)
+    {
+        if ( ! in_array('deleted_at', $this->audit_fields, TRUE))
+        {
+            return false;
+        }
+        return $this->update_row($id, array('deleted_at' => date('Y-m-d H:i:s')));
+    }
+
+    public function restore_soft_delete($id)
+    {
+        if ( ! in_array('deleted_at', $this->audit_fields, TRUE))
+        {
+            return false;
+        }
+        $this->db->set('deleted_at', null);
+        $this->db->where($this->primary_key, $id);
+        return $this->db->update($this->table);
+    }
+
     protected function filter_allowed(array $data)
     {
-        if (empty($this->allowed_fields))
+        $allowed = array_merge($this->allowed_fields, $this->audit_fields);
+        if (empty($allowed))
         {
             return $data;
         }
-        return array_intersect_key($data, array_flip($this->allowed_fields));
+        return array_intersect_key($data, array_flip($allowed));
     }
 }
-
-require_once APPPATH . 'core/Auditable_model.php';

@@ -1,7 +1,7 @@
 <?php
 defined('BASEPATH') OR exit('No direct script access allowed');
 
-class Stripe_log_model extends Auditable_model
+class Stripe_log_model extends MY_Model
 {
     protected $table = 'stripe_logs';
 

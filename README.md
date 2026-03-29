@@ -78,7 +78,7 @@ STRIPE_SECRET=sk_test_REPLACE_ME
 STRIPE_PUBLISHABLE=pk_test_REPLACE_ME
 STRIPE_WEBHOOK_SECRET=whsec_REPLACE_ME     # filled in after Step 4
 JWT_SECRET=your_random_32_char_secret_here
-APP_URL=http://localhost:8080
+APP_URL=http://localhost:8081
 ```
 
 > All other values (DB credentials, SMTP) have working defaults for local development — no changes needed.
@@ -91,52 +91,74 @@ APP_URL=http://localhost:8080
 docker compose up -d --build
 ```
 
-This starts four services:
+This starts two services (see `docker-compose.yml`):
 
-| Container      | Purpose                          | Port(s)        |
-|----------------|----------------------------------|----------------|
-| `ci3_nginx`    | Web server (entry point)         | `8080`         |
-| `ci3_app`      | PHP-FPM application              | internal       |
-| `ci3_db`       | MySQL 8 database                 | `3306`         |
-| `ci3_mailhog`  | Local SMTP + email web UI        | `1025`, `8025` |
+| Service / container | Purpose                 | Port(s)  |
+|---------------------|-------------------------|----------|
+| `web` / `stripedesk-web` | PHP + Apache (app) | `8081` (override with `WEB_PORT` in `.env`) |
+| `db` / `stripedesk-db`   | MySQL 8            | `3306`   |
+
+Default database credentials match Docker Compose env defaults (`MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`, typically `stripedesk` / `stripedesk` / `stripedesk`). Override them in `.env` if you change the compose file.
 
 ---
 
 ### Step 3 — Install PHP dependencies
 
 ```bash
-docker compose exec app composer install
+docker compose exec web composer install
 ```
 
 ---
 
-### Step 4 — Seed the database
+### Step 4 — Run database migrations (schema)
 
-The schema and seed data are automatically imported when the `ci3_db` container first starts (via `docker-entrypoint-initdb.d`). To verify or re-run manually:
+Schema is defined in **`application/migrations/`** (and mirrored in `application/migrations/schema.sql` for reference). **Always run migrations before seeds** so tables exist.
+
+With CodeIgniter 3 wired and `public/index.php` as the front controller:
 
 ```bash
-docker compose exec db mysql -u ci3user -pci3secret ci3portal < database/schema.sql
-docker compose exec db mysql -u ci3user -pci3secret ci3portal < database/seeds.sql
+docker compose exec web php /var/www/html/public/index.php migrate
 ```
 
-**Seeded accounts:**
+That runs all pending migrations up to `application/config/migration.php` → `migration_version`.
 
-| Name        | Email                     | Password     | Role  |
-|-------------|---------------------------|--------------|-------|
-| Admin User  | admin@ci3portal.local     | Password123! | Admin |
-| Jane Smith  | jane@ci3portal.local      | Password123! | User  |
-| Bob Johnson | bob@ci3portal.local       | Password123! | User  |
+**Notes:**
+
+- `application/config/database.php` must point at the `db` service (hostname **`db`** from inside Docker) with the same database name and user as MySQL in Compose.
+- In **production**, do not expose the `Migrate` controller over HTTP; use CLI only (see `application/controllers/Migrate.php`).
 
 ---
 
-### Step 5 — Verify the app is running
+### Step 5 — Seed the database (data only)
+
+After migrations succeed, load **data** from `database/seeds.sql` (demo users, products, etc.). This file must **not** recreate tables if you already migrated.
+
+```bash
+docker compose exec -i db mysql -u stripedesk -pstripedesk stripedesk < database/seeds.sql
+```
+
+Adjust user, password, and database name if your `.env` / Compose values differ (`MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`).
+
+**Seeded accounts** (from `database/seeds.sql`; password for all: **Password123!**):
+
+| Name        | Email                 | Role  |
+|-------------|------------------------|-------|
+| Admin User  | admin@stripedesk.local | admin |
+| Jane Smith  | jane@stripedesk.local  | user  |
+| Bob Johnson | bob@stripedesk.local   | user  |
+
+The file also adds **EUR**, three **products**, sample **orders** / **order_items**, one **invoice** + **receipt**, and a **stripe_logs** row. Re-running the seed uses `ON DUPLICATE KEY UPDATE` on fixed `id` values where applicable.
+
+---
+
+### Step 6 — Verify the app is running
 
 Open your browser:
 
-- **App**: [http://localhost:8080](http://localhost:8080)
-- **MailHog** (email UI): [http://localhost:8025](http://localhost:8025)
+- **App**: [http://localhost:8081](http://localhost:8081) (or the port you set in `WEB_PORT`)
+- If you add **MailHog** (or another mail catcher) to Compose, use its documented port for the email UI (not included in the default two-service setup).
 
-Log in with the admin credentials above. You should see the dashboard.
+Log in with the admin account from your seed data once seeds are applied.
 
 ---
 
@@ -147,13 +169,13 @@ Stripe webhooks require a **publicly accessible HTTPS URL**. Ngrok creates a sec
 ### Step 1 — Start the Ngrok tunnel
 
 ```bash
-ngrok http 8080
+ngrok http 8081
 ```
 
 Ngrok will output something like:
 
 ```
-Forwarding   https://a1b2-203-0-113-42.ngrok-free.app -> http://localhost:8080
+Forwarding   https://a1b2-203-0-113-42.ngrok-free.app -> http://localhost:8081
 ```
 
 Copy the `https://...ngrok-free.app` URL.
@@ -186,7 +208,7 @@ APP_URL=https://YOUR-NGROK-SUBDOMAIN.ngrok-free.app
 Restart the app container to pick up the new env vars:
 
 ```bash
-docker compose restart app
+docker compose restart web
 ```
 
 ---
@@ -245,7 +267,7 @@ After a test purchase, check the Stripe dashboard:
 Check StripeDesk application logs:
 
 ```bash
-docker compose exec app tail -f /var/log/php_errors.log
+docker compose exec web tail -f /var/log/php_errors.log
 ```
 
 ---
@@ -435,7 +457,7 @@ postman/StripeDesk.postman_collection.json
 ### Importing
 
 1. Open Postman → click **Import** → drag the JSON file in
-2. Set the `base_url` collection variable to `http://localhost:8080`
+2. Set the `base_url` collection variable to `http://localhost:8081` (match your `WEB_PORT`)
 3. Run **POST Login** first — the collection auto-saves the token to `jwt_token` via a test script
 4. All subsequent requests automatically attach the `Bearer` token via a collection-level pre-request script
 
@@ -573,7 +595,7 @@ StripeDesk uses the same Docker images across all environments. The only differe
 |-------------------|-------------------------|---------------------------------|-----------------------------|
 | `CI_ENV`          | `development`           | `testing`                       | `production`                |
 | Stripe keys       | `sk_test_...`           | `sk_test_...`                   | `sk_live_...`               |
-| `APP_URL`         | `http://localhost:8080` | `https://staging.yourdomain.com`| `https://yourdomain.com`    |
+| `APP_URL`         | `http://localhost:8081` | `https://staging.yourdomain.com`| `https://yourdomain.com`    |
 | SMTP              | MailHog (local)         | Mailtrap sandbox                | SendGrid / SES (live)       |
 | Database          | Docker MySQL            | RDS db.t3.micro                 | RDS db.t3.small (Multi-AZ)  |
 | Error display     | ON                      | OFF                             | OFF                         |
@@ -746,7 +768,9 @@ stripedesk/
 │   │   ├── database.php          # DB connection (reads from env)
 │   │   ├── autoload.php          # Libraries, helpers auto-loaded
 │   │   └── routes.php            # All URL route definitions
+│   ├── migrations/               # CI3 migrations (canonical schema)
 │   ├── controllers/
+│   │   ├── Migrate.php           # Migration runner (dev/CLI; lock down in prod)
 │   │   ├── Auth.php              # Login / logout
 │   │   ├── Admin.php             # Admin panel: users, products, invoices
 │   │   ├── Shop.php              # User shop + Stripe Checkout flow
@@ -758,8 +782,10 @@ stripedesk/
 │   │   └── MY_Controller.php     # Base controller with auth guards
 │   ├── models/
 │   │   ├── User_model.php
+│   │   ├── Currency_model.php
 │   │   ├── Product_model.php
 │   │   ├── Order_model.php
+│   │   ├── Order_item_model.php
 │   │   ├── Invoice_model.php
 │   │   ├── Receipt_model.php
 │   │   └── Stripe_log_model.php
@@ -794,8 +820,7 @@ stripedesk/
 │       └── email/
 │           └── receipt.php       # HTML email template
 ├── database/
-│   ├── schema.sql                # Full table definitions
-│   └── seeds.sql                 # Demo users and products
+│   └── seeds.sql                 # Data only — run after migrations
 ├── docker/
 │   ├── php/
 │   │   ├── Dockerfile            # PHP 7.3-FPM + extensions + Composer
@@ -829,29 +854,31 @@ docker compose down
 docker compose logs -f
 
 # View PHP error log
-docker compose exec app tail -f /var/log/php_errors.log
+docker compose exec web tail -f /var/log/php_errors.log
 
-# Access MySQL shell
-docker compose exec db mysql -u ci3user -pci3secret ci3portal
+# Access MySQL shell (defaults: user/db stripedesk — match your .env)
+docker compose exec db mysql -u stripedesk -pstripedesk stripedesk
 
 # Install / update Composer dependencies
-docker compose exec app composer install
+docker compose exec web composer install
 
-# Restart app after .env changes
-docker compose restart app
+# Run migrations (schema)
+docker compose exec web php /var/www/html/public/index.php migrate
 
-# Re-run database schema + seeds
-docker compose exec db mysql -u ci3user -pci3secret ci3portal < database/schema.sql
-docker compose exec db mysql -u ci3user -pci3secret ci3portal < database/seeds.sql
+# Seed data (after migrations)
+docker compose exec -i db mysql -u stripedesk -pstripedesk stripedesk < database/seeds.sql
+
+# Restart web after .env changes
+docker compose restart web
 
 # Open the app in browser (macOS)
-open http://localhost:8080
+open http://localhost:8081
 
-# Open MailHog email UI
-open http://localhost:8025
+# MailHog (only if you add it to docker-compose)
+# open http://localhost:8025
 
 # Start Ngrok tunnel for Stripe webhooks
-ngrok http 8080
+ngrok http 8081
 ```
 
 ---

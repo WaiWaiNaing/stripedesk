@@ -41,4 +41,18 @@ class Product_model extends MY_Model
         $this->db->order_by('products.name', 'ASC');
         return $this->db->get()->result();
     }
+
+    public function list_all_with_currency($include_deleted = false)
+    {
+        $this->db->select('products.*, currencies.code AS currency_code');
+        $this->db->from($this->table);
+        $this->db->join('currencies', 'currencies.id = products.currency_id');
+        if ( ! $include_deleted)
+        {
+            $this->db->where('products.deleted_at', null);
+            $this->db->where('currencies.deleted_at', null);
+        }
+        $this->db->order_by('products.id', 'DESC');
+        return $this->db->get()->result();
+    }
 }

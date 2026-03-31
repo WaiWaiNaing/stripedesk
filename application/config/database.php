@@ -1,5 +1,6 @@
 <?php
 defined('BASEPATH') OR exit('No direct script access allowed');
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'env.php';
 
 $active_group = sd_env_first(array('DB_ACTIVE_GROUP'), 'default');
 if ($active_group === null || $active_group === '')
@@ -32,7 +33,7 @@ $db['default'] = array(
     'save_queries' => sd_env_bool('DB_SAVE_QUERIES', true),
 );
 
-$mysql_port = sd_env_int_first(array('DB_PORT', 'MYSQL_PORT'), 0);
+$mysql_port = sd_env_int_first(array('DB_PORT', 'MYSQL_PORT'), 3306);
 if ($mysql_port > 0 && isset($db['default']['hostname']))
 {
     $db['default']['port'] = $mysql_port;

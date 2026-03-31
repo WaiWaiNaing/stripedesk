@@ -5,11 +5,9 @@ class Products extends Api_base_controller
 {
     public function index()
     {
+        // product catalog is visible to authenticated users (mobile/web portal)
         $user = $this->authenticated_user();
-        if ($user === null)
-        {
-            return;
-        }
+        if ($user === null) { return; }
         $svc = new \Stripedesk\Services\Product_api_service($this);
         $dtos = $svc->list_active_catalog();
         $data = array();

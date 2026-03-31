@@ -2,6 +2,7 @@ CREATE TABLE users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     email VARCHAR(150) NOT NULL,
+    email_verified_at TIMESTAMP NULL DEFAULT NULL,
     password VARCHAR(255) NOT NULL,
     role ENUM('admin', 'user') DEFAULT 'user',
     api_token VARCHAR(255) NULL,
@@ -139,4 +140,43 @@ CREATE TABLE stripe_logs (
     KEY idx_stripe_logs_created_at (created_at),
     KEY idx_stripe_logs_event_type (event_type),
     KEY idx_stripe_logs_deleted_at (deleted_at)
+);
+
+CREATE TABLE password_resets (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(150) NOT NULL,
+    intent VARCHAR(32) NOT NULL DEFAULT 'password_reset',
+    otp_hash VARCHAR(255) NOT NULL,
+    otp_expires_at TIMESTAMP NULL DEFAULT NULL,
+    verified_at TIMESTAMP NULL DEFAULT NULL,
+    reset_token_hash VARCHAR(255) NULL,
+    reset_expires_at TIMESTAMP NULL DEFAULT NULL,
+    attempts INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by INT NULL,
+    updated_by INT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP NULL DEFAULT NULL,
+    KEY idx_password_resets_email (email),
+    KEY idx_password_resets_deleted_at (deleted_at),
+    KEY idx_password_resets_otp_expires_at (otp_expires_at)
+);
+
+CREATE TABLE otp_verifications (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    email VARCHAR(150) NOT NULL,
+    intent VARCHAR(32) NOT NULL,
+    otp_hash VARCHAR(255) NOT NULL,
+    otp_expires_at TIMESTAMP NULL DEFAULT NULL,
+    verified_at TIMESTAMP NULL DEFAULT NULL,
+    attempts INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP NULL DEFAULT NULL,
+    KEY idx_otp_verifications_user_id (user_id),
+    KEY idx_otp_verifications_email_intent (email, intent),
+    KEY idx_otp_verifications_deleted_at (deleted_at),
+    KEY idx_otp_verifications_otp_expires_at (otp_expires_at),
+    CONSTRAINT otp_verifications_user_id_fk FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );

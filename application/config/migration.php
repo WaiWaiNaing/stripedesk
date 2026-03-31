@@ -5,5 +5,5 @@ $config['migration_enabled'] = TRUE;
 $config['migration_type'] = 'sequential';
 $config['migration_table'] = 'migrations';
 $config['migration_auto_latest'] = FALSE;
-$config['migration_version'] = 8;
+$config['migration_version'] = 11;
 $config['migration_path'] = APPPATH . 'migrations/';

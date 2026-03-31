@@ -8,6 +8,7 @@ class User_model extends MY_Model
     protected $allowed_fields = array(
         'name',
         'email',
+        'email_verified_at',
         'password',
         'role',
         'api_token',
@@ -34,6 +35,14 @@ class User_model extends MY_Model
         {
             $this->db->limit((int) $limit, (int) $offset);
         }
+        return $this->db->get($this->table)->result();
+    }
+
+    public function list_all_active($limit = 200)
+    {
+        $this->db->where('deleted_at', null);
+        $this->db->order_by('id', 'DESC');
+        $this->db->limit((int) $limit);
         return $this->db->get($this->table)->result();
     }
 }

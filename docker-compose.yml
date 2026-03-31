@@ -16,6 +16,21 @@ services:
     networks:
       - stripedesk
 
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    environment:
+      VITE_API_PROXY_TARGET: http://web
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
+    depends_on:
+      - web
+    networks:
+      - stripedesk
+
   db:
     image: mysql:8.0
     container_name: stripedesk-db

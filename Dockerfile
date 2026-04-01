@@ -3,6 +3,7 @@ FROM composer:2 AS vendor
 WORKDIR /app
 
 COPY composer.json composer.lock* ./
+COPY application ./application
 RUN composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
 
 FROM php:7.3-apache

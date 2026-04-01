@@ -22,10 +22,10 @@ class Auth extends Api_base_controller
         if (isset($result['status']) && $result['status'] === 'email_not_verified')
         {
             $intent = isset($result['verification_intent']) ? (string) $result['verification_intent'] : 'registration';
-            $msg = $intent === 'account_activation'
-                ? 'Verify your email with the OTP sent to your inbox before signing in.'
-                : 'Verify your email with the OTP code sent when you registered.';
-            $this->emit(\Stripedesk\Api\Api_error_response::create(403, 'email_not_verified', $msg, array('intent' => $intent)));
+            $this->emit(\Stripedesk\Api\Api_success_response::with_data(array(
+                'requires_verification' => true,
+                'intent' => $intent,
+            )));
             return;
         }
         if ( ! isset($result['status']) || $result['status'] !== 'success' || ! isset($result['dto']))
@@ -33,7 +33,11 @@ class Auth extends Api_base_controller
             $this->emit(\Stripedesk\Api\Api_error_response::create(401, 'invalid_credentials', 'Invalid email or password'));
             return;
         }
-        $this->emit(\Stripedesk\Api\Api_success_response::with_data($result['dto']->to_array()));
+        $token_data = $result['dto']->to_array();
+        $this->set_auth_cookie($token_data['access_token'], isset($token_data['expires_in']) ? (int) $token_data['expires_in'] : 86400);
+        $this->emit(\Stripedesk\Api\Api_success_response::with_data(array(
+            'requires_verification' => false,
+        )));
     }
 
     public function register()
@@ -78,6 +82,44 @@ class Auth extends Api_base_controller
         $this->emit(\Stripedesk\Api\Api_success_response::with_data($result));
     }
 
+    public function resend()
+    {
+        if ( ! $this->require_method('POST'))
+        {
+            return;
+        }
+        $body = $this->json_body();
+        if ($body === null)
+        {
+            return;
+        }
+        $svc = new \Stripedesk\Services\Auth_password_service($this);
+        list($ok, $result) = $svc->resend_otp($body);
+        if ( ! $ok)
+        {
+            $msg = (string) $result;
+            $status = 400;
+            $code = 'resend_failed';
+            if ($msg === 'this action is not available for administrator accounts')
+            {
+                $status = 403;
+                $code = 'forbidden';
+            }
+            elseif ($msg === 'user not found')
+            {
+                $status = 404;
+                $code = 'user_not_found';
+            }
+            elseif ($msg === 'email already verified')
+            {
+                $code = 'email_already_verified';
+            }
+            $this->emit(\Stripedesk\Api\Api_error_response::create($status, $code, $msg));
+            return;
+        }
+        $this->emit(\Stripedesk\Api\Api_success_response::with_data($result));
+    }
+
     public function verify_otp()
     {
         if ( ! $this->require_method('POST'))
@@ -97,6 +139,14 @@ class Auth extends Api_base_controller
             $code = ($msg === 'email already verified') ? 'email_already_verified' : 'otp_invalid';
             $this->emit(\Stripedesk\Api\Api_error_response::create(400, $code, $msg));
             return;
+        }
+        if ($this->should_issue_auth_cookie_for_intent(isset($body['intent']) ? $body['intent'] : ''))
+        {
+            $this->set_auth_cookie(isset($result['access_token']) ? $result['access_token'] : '', isset($result['expires_in']) ? (int) $result['expires_in'] : 86400);
+            unset($result['access_token']);
+            unset($result['token_type']);
+            unset($result['expires_in']);
+            $result['requires_verification'] = false;
         }
         $this->emit(\Stripedesk\Api\Api_success_response::with_data($result));
     }
@@ -125,6 +175,13 @@ class Auth extends Api_base_controller
             $this->emit(\Stripedesk\Api\Api_error_response::create(400, 'reset_failed', $msg));
             return;
         }
+        if (isset($result['access_token']))
+        {
+            $this->set_auth_cookie($result['access_token'], isset($result['expires_in']) ? (int) $result['expires_in'] : 86400);
+            unset($result['access_token']);
+            unset($result['token_type']);
+            unset($result['expires_in']);
+        }
         $this->emit(\Stripedesk\Api\Api_success_response::with_data($result));
     }
 
@@ -143,5 +200,10 @@ class Auth extends Api_base_controller
             return;
         }
         $this->emit(\Stripedesk\Api\Api_success_response::with_data($dto->to_array()));
+    }
+
+    private function should_issue_auth_cookie_for_intent($intent)
+    {
+        return $intent === 'registration' || $intent === 'account_activation';
     }
 }

@@ -1,0 +1,11 @@
+frontend
+.git
+.github
+node_modules
+vendor
+.env
+.env.*
+docker-compose.yml
+README.md
+postman
+.cursor

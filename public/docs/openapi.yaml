@@ -29,6 +29,10 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    authCookie:
+      type: apiKey
+      in: cookie
+      name: stripedesk_access_token
   schemas:
     ErrorBody:
       type: object
@@ -99,7 +103,7 @@ components:
           example: "123456"
         intent:
           type: string
-          enum: [registration, account_activation, password_reset]
+          enum: [registration, account_activation, reset_password]
     ResetPasswordRequest:
       type: object
       required: [email, reset_token, new_password]
@@ -136,7 +140,27 @@ components:
           type: boolean
           example: true
         data:
-          $ref: '#/components/schemas/TokenPayload'
+          type: object
+          properties:
+            requires_verification:
+              type: boolean
+              example: false
+    LoginVerificationRequiredResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            requires_verification:
+              type: boolean
+              example: true
+            intent:
+              type: string
+              enum: [registration, account_activation]
     RegisterResponse:
       type: object
       required: [success, data]
@@ -170,6 +194,36 @@ components:
             status:
               type: string
               example: ok
+    ResendRequest:
+      type: object
+      required: [email, intent]
+      properties:
+        email:
+          type: string
+          format: email
+          example: jane@stripedesk.local
+        intent:
+          type: string
+          enum: [registration, account_activation, reset_password]
+    ResendResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            status:
+              type: string
+              example: ok
+            requires_verification:
+              type: boolean
+              example: true
+            intent:
+              type: string
+              enum: [registration, account_activation, reset_password]
     VerifyOtpTokenResponse:
       type: object
       required: [success, data]
@@ -178,7 +232,11 @@ components:
           type: boolean
           example: true
         data:
-          $ref: '#/components/schemas/TokenPayload'
+          type: object
+          properties:
+            requires_verification:
+              type: boolean
+              example: false
     VerifyOtpResetResponse:
       type: object
       required: [success, data]
@@ -204,13 +262,11 @@ components:
           type: boolean
           example: true
         data:
-          allOf:
-            - $ref: '#/components/schemas/TokenPayload'
-            - type: object
-              properties:
-                status:
-                  type: string
-                  example: ok
+          type: object
+          properties:
+            status:
+              type: string
+              example: ok
     UserProfile:
       type: object
       properties:
@@ -626,6 +682,9 @@ paths:
     post:
       tags: [Auth]
       summary: Login with email and password
+      description: |
+        On successful verified login, the API sets the JWT in the `stripedesk_access_token`
+        response cookie. The JSON body no longer returns `access_token`.
       requestBody:
         required: true
         content:
@@ -634,15 +693,20 @@ paths:
               $ref: '#/components/schemas/LoginRequest'
       responses:
         '200':
-          description: Login succeeded
+          description: Login succeeded or verification required
+          headers:
+            Set-Cookie:
+              description: Set on verified login with the auth JWT cookie.
+              schema:
+                type: string
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LoginResponse'
+                oneOf:
+                  - $ref: '#/components/schemas/LoginResponse'
+                  - $ref: '#/components/schemas/LoginVerificationRequiredResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
   /api/v1/auth/register:
     post:
       tags: [Auth]
@@ -663,6 +727,30 @@ paths:
                 $ref: '#/components/schemas/RegisterResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+  /api/v1/auth/resend:
+    post:
+      tags: [Auth]
+      summary: Resend OTP
+      description: Resends the OTP for registration, account activation, or password reset.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResendRequest'
+      responses:
+        '200':
+          description: OTP resent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResendResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/v1/auth/forgot:
     post:
       tags: [Auth]
@@ -691,7 +779,10 @@ paths:
         Supported intents:
         - registration
         - account_activation
-        - password_reset
+        - reset_password
+
+        For `registration` and `account_activation`, the API sets the auth cookie in the
+        `Set-Cookie` response header instead of returning `access_token` in the body.
       requestBody:
         required: true
         content:
@@ -701,6 +792,11 @@ paths:
       responses:
         '200':
           description: OTP verified
+          headers:
+            Set-Cookie:
+              description: Set for registration/account_activation flows after successful verification.
+              schema:
+                type: string
           content:
             application/json:
               schema:
@@ -713,7 +809,11 @@ paths:
     post:
       tags: [Auth]
       summary: Reset password using a verified reset token
-      description: Available only for user accounts.
+      description: |
+        Available only for user accounts.
+
+        On success, the API sets the auth cookie in the `Set-Cookie` response header instead
+        of returning `access_token` in the body.
       requestBody:
         required: true
         content:
@@ -723,6 +823,11 @@ paths:
       responses:
         '200':
           description: Password reset succeeded
+          headers:
+            Set-Cookie:
+              description: Set on successful password reset.
+              schema:
+                type: string
           content:
             application/json:
               schema:
@@ -737,6 +842,7 @@ paths:
       summary: Get authenticated user profile
       security:
         - bearerAuth: []
+        - authCookie: []
       responses:
         '200':
           description: Authenticated user profile
@@ -754,6 +860,7 @@ paths:
       summary: List active products
       security:
         - bearerAuth: []
+        - authCookie: []
       responses:
         '200':
           description: Product catalog
@@ -770,6 +877,7 @@ paths:
       description: Normal users only. Admin users cannot purchase products.
       security:
         - bearerAuth: []
+        - authCookie: []
       requestBody:
         required: true
         content:
@@ -796,6 +904,7 @@ paths:
       description: Returns own invoices for a user, or all invoices for an admin.
       security:
         - bearerAuth: []
+        - authCookie: []
       responses:
         '200':
           description: Invoice summaries
@@ -811,6 +920,7 @@ paths:
       summary: Get invoice detail
       security:
         - bearerAuth: []
+        - authCookie: []
       parameters:
         - name: id
           in: path
@@ -836,6 +946,7 @@ paths:
       summary: Get receipt detail
       security:
         - bearerAuth: []
+        - authCookie: []
       parameters:
         - name: id
           in: path
@@ -861,6 +972,7 @@ paths:
       summary: List active users
       security:
         - bearerAuth: []
+        - authCookie: []
       parameters:
         - name: limit
           in: query
@@ -886,6 +998,7 @@ paths:
       description: Creates an admin account and issues email verification OTP for account activation.
       security:
         - bearerAuth: []
+        - authCookie: []
       requestBody:
         required: true
         content:
@@ -911,6 +1024,7 @@ paths:
       summary: Soft-delete user
       security:
         - bearerAuth: []
+        - authCookie: []
       parameters:
         - name: id
           in: path
@@ -938,6 +1052,7 @@ paths:
       summary: List products for admin
       security:
         - bearerAuth: []
+        - authCookie: []
       parameters:
         - name: include_deleted
           in: query
@@ -960,6 +1075,7 @@ paths:
       summary: Create product
       security:
         - bearerAuth: []
+        - authCookie: []
       requestBody:
         required: true
         content:
@@ -985,6 +1101,7 @@ paths:
       summary: Update product
       security:
         - bearerAuth: []
+        - authCookie: []
       parameters:
         - name: id
           in: path
@@ -1016,6 +1133,7 @@ paths:
       summary: List currencies
       security:
         - bearerAuth: []
+        - authCookie: []
       responses:
         '200':
           description: Currency list
@@ -1032,6 +1150,7 @@ paths:
       summary: Create currency
       security:
         - bearerAuth: []
+        - authCookie: []
       requestBody:
         required: true
         content:
@@ -1058,6 +1177,7 @@ paths:
       description: Currency code is immutable in this API.
       security:
         - bearerAuth: []
+        - authCookie: []
       parameters:
         - name: id
           in: path
@@ -1091,6 +1211,7 @@ paths:
       summary: List Stripe logs
       security:
         - bearerAuth: []
+        - authCookie: []
       parameters:
         - name: limit
           in: query

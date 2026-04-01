@@ -12,16 +12,17 @@
 2. [Installation & Setup](#installation--setup)
 3. [Running Locally with Ngrok & Stripe](#running-locally-with-ngrok--stripe)
 4. [Stripe Test Mode Walkthrough](#stripe-test-mode-walkthrough)
-5. [API Reference](#api-reference)
-6. [Postman Collection](#postman-collection)
-7. [ER Diagram](#er-diagram)
-8. [Security & Task Restriction Design](#security--task-restriction-design)
-9. [Mobile API Considerations](#mobile-api-considerations)
-10. [Staging vs Production Deployment](#staging-vs-production-deployment)
-11. [Additional Tools & Libraries](#additional-tools--libraries)
-12. [Email Receipts (SMTP)](#email-receipts-smtp)
-13. [Project Structure](#project-structure)
-14. [Quick Reference](#quick-reference)
+5. [Swagger / OpenAPI Docs](#swagger--openapi-docs)
+6. [API Reference](#api-reference)
+7. [Postman Collection](#postman-collection)
+8. [ER Diagram](#er-diagram)
+9. [Security & Task Restriction Design](#security--task-restriction-design)
+10. [Mobile API Considerations](#mobile-api-considerations)
+11. [Staging vs Production Deployment](#staging-vs-production-deployment)
+12. [Additional Tools & Libraries](#additional-tools--libraries)
+13. [Email Receipts (SMTP)](#email-receipts-smtp)
+14. [Project Structure](#project-structure)
+15. [Quick Reference](#quick-reference)
 
 ---
 
@@ -272,6 +273,25 @@ docker compose exec web tail -f /var/log/php_errors.log
 
 ---
 
+## Swagger / OpenAPI Docs
+
+Interactive Swagger UI is available when the app is running:
+
+- `http://localhost:8081/docs/`
+
+Files:
+
+- `public/docs/index.html` — Swagger UI page
+- `public/docs/openapi.yaml` — OpenAPI 3.0 spec
+
+Notes:
+
+- Swagger UI loads the spec from `./openapi.yaml`
+- You can use the **Authorize** button with `Bearer <jwt>` tokens for protected endpoints
+- The spec documents the current `/api/v1/` routes, request bodies, query params, and common response envelopes
+
+---
+
 ## API Reference
 
 All API endpoints are prefixed with `/api/v1/`. Authentication uses **Bearer JWT tokens**.
@@ -284,10 +304,14 @@ All API endpoints are prefixed with `/api/v1/`. Authentication uses **Bearer JWT
 
 Authenticate and receive a JWT token.
 
+- Public
+- For verified accounts only
+- If the account exists but email is not yet verified, returns `403 email_not_verified`
+
 **Request body:**
 ```json
 {
-  "email": "jane@ci3portal.local",
+  "email": "jane@stripedesk.local",
   "password": "Password123!"
 }
 ```
@@ -295,28 +319,171 @@ Authenticate and receive a JWT token.
 **Response `200`:**
 ```json
 {
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "expires_in": 86400,
-  "token_type": "Bearer",
-  "user": {
-    "id": 2,
-    "name": "Jane Smith",
-    "email": "jane@ci3portal.local",
-    "role": "user"
+  "success": true,
+  "data": {
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "token_type": "Bearer",
+    "expires_in": 86400
   }
 }
 ```
 
 **Response `401`:**
 ```json
-{ "error": "Invalid credentials" }
+{
+  "success": false,
+  "error": {
+    "code": "invalid_credentials",
+    "message": "Invalid email or password"
+  }
+}
 ```
 
----
+**Response `403` (unverified account):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "email_not_verified",
+    "message": "Verify your email with the OTP code sent when you registered.",
+    "intent": "registration"
+  }
+}
+```
+
+#### `POST /api/v1/auth/register`
+
+Create a **user** account and send an OTP email for verification.
+
+- Public
+- User flow only
+- Does **not** auto-login until OTP is verified
+
+**Request body:**
+```json
+{
+  "name": "Jane Smith",
+  "email": "jane@stripedesk.local",
+  "password": "Password123!"
+}
+```
+
+**Response `201`:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 2,
+    "email": "jane@stripedesk.local",
+    "requires_verification": true
+  }
+}
+```
+
+#### `POST /api/v1/auth/forgot`
+
+Issue a password-reset OTP email.
+
+- Public
+- User flow only
+- Admin accounts are rejected with `403`
+
+**Request body:**
+```json
+{
+  "email": "jane@stripedesk.local"
+}
+```
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "data": {
+    "status": "ok"
+  }
+}
+```
+
+#### `POST /api/v1/auth/verify-otp`
+
+Verify an OTP.
+
+- Public
+- Supported intents:
+  - `registration`
+  - `account_activation`
+  - `password_reset`
+- `registration` / `account_activation` returns JWT on success
+- `password_reset` returns a `reset_token`
+
+**Request body:**
+```json
+{
+  "email": "jane@stripedesk.local",
+  "otp": "123456",
+  "intent": "registration"
+}
+```
+
+**Response `200` (`registration` / `account_activation`):**
+```json
+{
+  "success": true,
+  "data": {
+    "access_token": "eyJ...",
+    "token_type": "Bearer",
+    "expires_in": 86400
+  }
+}
+```
+
+**Response `200` (`password_reset`):**
+```json
+{
+  "success": true,
+  "data": {
+    "reset_token": "generated-reset-token",
+    "reset_expires_at": "2026-03-31 12:00:00"
+  }
+}
+```
+
+#### `POST /api/v1/auth/reset-password`
+
+Reset password with a verified reset token.
+
+- Public
+- User flow only
+- Returns JWT so the frontend can auto-login after reset
+
+**Request body:**
+```json
+{
+  "email": "jane@stripedesk.local",
+  "reset_token": "generated-reset-token",
+  "new_password": "NewPassword123!"
+}
+```
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "data": {
+    "status": "ok",
+    "access_token": "eyJ...",
+    "token_type": "Bearer",
+    "expires_in": 86400
+  }
+}
+```
 
 #### `GET /api/v1/auth/me`
 
 Returns the authenticated user's profile.
+
+- JWT required
 
 **Headers:**
 ```
@@ -326,11 +493,14 @@ Authorization: Bearer <token>
 **Response `200`:**
 ```json
 {
-  "id": 2,
-  "name": "Jane Smith",
-  "email": "jane@ci3portal.local",
-  "role": "user",
-  "created_at": "2025-01-01 00:00:00"
+  "success": true,
+  "data": {
+    "id": 2,
+    "name": "Jane Smith",
+    "email": "jane@stripedesk.local",
+    "role": "user",
+    "created_at": "2026-03-31 00:00:00"
+  }
 }
 ```
 
@@ -340,22 +510,40 @@ Authorization: Bearer <token>
 
 #### `GET /api/v1/products`
 
-Returns all active products. Requires authentication.
+Returns all active catalog products.
+
+- JWT required
 
 **Response `200`:**
 ```json
 {
+  "success": true,
   "data": [
     {
       "id": 1,
       "name": "Basic Plan",
       "description": "Access to core features for individuals.",
-      "price": 29.99,
-      "currency": "USD"
+      "price": "29.99",
+      "currency_code": "USD"
     }
   ]
 }
 ```
+
+### Checkout / Stripe
+
+#### `POST /api/v1/checkout/session`
+
+Create a Stripe Checkout session for the authenticated user.
+
+- JWT required
+
+#### `POST /api/v1/stripe/webhook`
+
+Stripe webhook endpoint.
+
+- Public
+- Intended for Stripe only
 
 ---
 
@@ -365,48 +553,15 @@ Returns all active products. Requires authentication.
 
 Returns invoices for the authenticated user. Admins receive all invoices.
 
-**Response `200`:**
-```json
-{
-  "data": [
-    {
-      "id": 1,
-      "invoice_number": "INV-20250101-00001",
-      "total": 29.99,
-      "currency": "USD",
-      "issued_at": "2025-01-01 12:00:00",
-      "product_name": "Basic Plan"
-    }
-  ]
-}
-```
-
----
+- JWT required
 
 #### `GET /api/v1/invoices/:id`
 
-Returns full details of a single invoice. Users can only access their own invoices.
+Returns full details of one invoice.
 
-**Response `200`:**
-```json
-{
-  "id": 1,
-  "invoice_number": "INV-20250101-00001",
-  "subtotal": 29.99,
-  "tax": 0.00,
-  "total": 29.99,
-  "currency": "USD",
-  "issued_at": "2025-01-01 12:00:00",
-  "product_name": "Basic Plan",
-  "user_name": "Jane Smith",
-  "user_email": "jane@ci3portal.local"
-}
-```
-
-**Response `403`:**
-```json
-{ "error": "Forbidden" }
-```
+- JWT required
+- Users can access only their own invoice
+- Admin can access all
 
 ---
 
@@ -414,31 +569,110 @@ Returns full details of a single invoice. Users can only access their own invoic
 
 #### `GET /api/v1/receipts/:id`
 
-Returns full details of a single receipt. Users can only access their own receipts.
+Returns full details of one receipt.
 
-**Response `200`:**
+- JWT required
+- Users can access only their own receipt
+- Admin can access all
+
+---
+
+### Admin
+
+All endpoints below require:
+
+- JWT required
+- `role = admin`
+
+#### `GET /api/v1/admin/users`
+
+List active users.
+
+Query params:
+
+- `limit` optional, default `200`, max `500`
+
+#### `POST /api/v1/admin/users`
+
+Create an **admin** account and send an OTP email for account activation.
+
+#### `DELETE /api/v1/admin/users/:id`
+
+Soft-delete a user.
+
+- Cannot delete self
+- Cannot delete the last active admin
+
+#### `GET /api/v1/admin/products`
+
+List products for admin.
+
+Query params:
+
+- `include_deleted=1` optional
+
+#### `POST /api/v1/admin/products`
+
+Create a product.
+
+#### `PUT /api/v1/admin/products/:id`
+
+Update a product.
+
+#### `GET /api/v1/admin/currencies`
+
+List currencies.
+
+#### `POST /api/v1/admin/currencies`
+
+Create a currency.
+
+#### `PUT /api/v1/admin/currencies/:id`
+
+Update a currency.
+
+- Currency `code` is immutable
+
+#### `GET /api/v1/admin/stripe-logs`
+
+List Stripe/system log entries.
+
+Query params:
+
+- `limit` optional, default `100`, max `500`
+
+---
+
+### Response Envelope
+
+Successful responses:
+
 ```json
 {
-  "id": 1,
-  "receipt_number": "RCP-20250101-00001",
-  "invoice_number": "INV-20250101-00001",
-  "amount_paid": 29.99,
-  "currency": "USD",
-  "stripe_payment_intent": "pi_3ABC...",
-  "paid_at": "2025-01-01 12:00:00",
-  "product_name": "Basic Plan",
-  "user_name": "Jane Smith"
+  "success": true,
+  "data": {}
 }
 ```
 
----
+Error responses:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "validation_error",
+    "message": "Human-readable message"
+  }
+}
+```
 
 ### HTTP Status Codes
 
 | Code | Meaning                               |
 |------|---------------------------------------|
 | 200  | Success                               |
-| 400  | Bad request / missing parameters      |
+| 201  | Created                               |
+| 400  | Bad request / validation failure      |
 | 401  | Unauthenticated / expired token       |
 | 403  | Forbidden / insufficient permissions  |
 | 404  | Resource not found                    |
@@ -870,6 +1104,9 @@ docker compose exec -i db mysql -u stripedesk -pstripedesk stripedesk < database
 
 # Restart web after .env changes
 docker compose restart web
+
+# Open Swagger UI
+open http://localhost:8081/docs/
 
 # Open the app in browser (macOS)
 open http://localhost:8081

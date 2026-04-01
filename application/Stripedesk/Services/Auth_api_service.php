@@ -33,7 +33,7 @@ final class Auth_api_service
         {
             return array('status' => 'invalid_credentials');
         }
-        if ( ! $this->user_email_is_verified($user))
+        if ( ! Email_verification::is_verified($user))
         {
             $intent = ((string) $user->role === 'admin') ? 'account_activation' : 'registration';
 

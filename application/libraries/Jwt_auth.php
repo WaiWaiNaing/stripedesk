@@ -41,11 +41,22 @@ class Jwt_auth
         {
             $raw = isset($_SERVER['HTTP_AUTHORIZATION']) ? $_SERVER['HTTP_AUTHORIZATION'] : '';
         }
-        if ( ! is_string($raw) || stripos($raw, 'Bearer ') !== 0)
+
+        $token = '';
+        if (is_string($raw) && stripos($raw, 'Bearer ') === 0)
         {
-            return null;
+            $token = trim(substr($raw, 7));
         }
-        $token = trim(substr($raw, 7));
+
+        if ($token === '')
+        {
+            $cookie_name = function_exists('sd_env') ? (string) sd_env('AUTH_COOKIE_NAME', 'stripedesk_access_token') : 'stripedesk_access_token';
+            if (isset($_COOKIE[$cookie_name]) && is_string($_COOKIE[$cookie_name]))
+            {
+                $token = trim((string) $_COOKIE[$cookie_name]);
+            }
+        }
+
         if ($token === '')
         {
             return null;

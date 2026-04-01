@@ -123,11 +123,87 @@ final class Auth_password_service
         return array(true, $data);
     }
 
+    public function resend_otp(array $payload)
+    {
+        $email = isset($payload['email']) ? trim((string) $payload['email']) : '';
+        $intent = isset($payload['intent']) ? trim((string) $payload['intent']) : '';
+        if ($intent === 'reset_password')
+        {
+            $intent = 'password_reset';
+        }
+        $allowed = array('registration', 'account_activation', 'password_reset');
+
+        if ($email === '' || $intent === '')
+        {
+            return array(false, 'email and intent are required');
+        }
+        if ( ! in_array($intent, $allowed, true))
+        {
+            return array(false, 'intent must be registration, account_activation, or reset_password');
+        }
+
+        $user = $this->ci->user_model->get_by_email($email);
+        if ($intent === 'password_reset')
+        {
+            if ($user && isset($user->role) && (string) $user->role === 'admin')
+            {
+                return array(false, 'this action is not available for administrator accounts');
+            }
+            if ( ! $user)
+            {
+                return array(true, array('status' => 'ok'));
+            }
+
+            $dev_otp = $this->issue_password_reset_otp_row($email);
+            $data = array('status' => 'ok');
+            if (function_exists('sd_env_bool') && sd_env_bool('OTP_DEV_RETURN_CODE', false))
+            {
+                $data['otp'] = $dev_otp;
+            }
+
+            return array(true, $data);
+        }
+
+        if ( ! $user)
+        {
+            return array(false, 'user not found');
+        }
+        if ($intent === 'registration' && (string) $user->role !== 'user')
+        {
+            return array(false, 'invalid resend intent');
+        }
+        if ($intent === 'account_activation' && (string) $user->role !== 'admin')
+        {
+            return array(false, 'invalid resend intent');
+        }
+        if (Email_verification::is_verified($user))
+        {
+            return array(false, 'email already verified');
+        }
+
+        $dev_otp = $this->issue_otp_verification((int) $user->id, $email, $intent);
+        $data = array(
+            'status' => 'ok',
+            'requires_verification' => true,
+            'intent' => $intent,
+        );
+        if (function_exists('sd_env_bool') && sd_env_bool('OTP_DEV_RETURN_CODE', false))
+        {
+            $data['otp'] = $dev_otp;
+        }
+
+        return array(true, $data);
+    }
+
     public function verify_otp(array $payload)
     {
         $email = isset($payload['email']) ? trim((string) $payload['email']) : '';
         $otp = isset($payload['otp']) ? trim((string) $payload['otp']) : '';
-        $intent = isset($payload['intent']) ? trim((string) $payload['intent']) : 'password_reset';
+        $intent = isset($payload['intent']) ? trim((string) $payload['intent']) : 'reset_password';
+        if ($intent === 'reset_password')
+        {
+            $intent = 'password_reset';
+        }
         if ($email === '' || $otp === '')
         {
             return array(false, 'email and otp are required');
@@ -135,7 +211,7 @@ final class Auth_password_service
         $allowed = array('registration', 'account_activation', 'password_reset');
         if ( ! in_array($intent, $allowed, true))
         {
-            return array(false, 'intent must be registration, account_activation, or password_reset');
+            return array(false, 'intent must be registration, account_activation, or reset_password');
         }
 
         if ($intent === 'registration' || $intent === 'account_activation')

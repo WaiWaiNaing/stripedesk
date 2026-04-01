@@ -9,6 +9,7 @@ $route['api/v1/auth/login'] = 'api/auth/login';
 $route['api/v1/auth/me'] = 'api/auth/me';
 $route['api/v1/auth/register'] = 'api/auth/register';
 $route['api/v1/auth/forgot'] = 'api/auth/forgot';
+$route['api/v1/auth/resend'] = 'api/auth/resend';
 $route['api/v1/auth/verify-otp'] = 'api/auth/verify_otp';
 $route['api/v1/auth/reset-password'] = 'api/auth/reset_password';
 $route['api/v1/invoices'] = 'api/invoices/index';

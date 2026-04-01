@@ -1,0 +1,1150 @@
+openapi: 3.0.3
+info:
+  title: StripeDesk API
+  version: "1.0.0"
+  description: |
+    OpenAPI documentation for the StripeDesk REST API.
+
+    Notes:
+    - All application API routes are prefixed with `/api/v1`.
+    - Most successful responses use the envelope `{ success: true, data: ... }`.
+    - Most error responses use the envelope `{ success: false, error: { code, message } }`.
+servers:
+  - url: /
+    description: Same host
+tags:
+  - name: Auth
+  - name: Catalog
+  - name: Checkout
+  - name: Invoices
+  - name: Receipts
+  - name: Admin Users
+  - name: Admin Products
+  - name: Admin Currencies
+  - name: Admin Stripe Logs
+  - name: Webhooks
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ErrorBody:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              example: validation_error
+            message:
+              type: string
+              example: Human-readable message
+            intent:
+              type: string
+              example: registration
+              nullable: true
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: jane@stripedesk.local
+        password:
+          type: string
+          format: password
+          example: Password123!
+    RegisterRequest:
+      type: object
+      required: [name, email, password]
+      properties:
+        name:
+          type: string
+          example: Jane Smith
+        email:
+          type: string
+          format: email
+          example: jane@stripedesk.local
+        password:
+          type: string
+          format: password
+          example: Password123!
+    ForgotRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          example: jane@stripedesk.local
+    VerifyOtpRequest:
+      type: object
+      required: [email, otp, intent]
+      properties:
+        email:
+          type: string
+          format: email
+          example: jane@stripedesk.local
+        otp:
+          type: string
+          example: "123456"
+        intent:
+          type: string
+          enum: [registration, account_activation, password_reset]
+    ResetPasswordRequest:
+      type: object
+      required: [email, reset_token, new_password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: jane@stripedesk.local
+        reset_token:
+          type: string
+          example: generated-reset-token
+        new_password:
+          type: string
+          format: password
+          example: NewPassword123!
+    TokenPayload:
+      type: object
+      required: [access_token, token_type, expires_in]
+      properties:
+        access_token:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          example: 86400
+    LoginResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/TokenPayload'
+    RegisterResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            id:
+              type: integer
+              example: 2
+            email:
+              type: string
+              format: email
+              example: jane@stripedesk.local
+            requires_verification:
+              type: boolean
+              example: true
+    ForgotResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            status:
+              type: string
+              example: ok
+    VerifyOtpTokenResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/TokenPayload'
+    VerifyOtpResetResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            reset_token:
+              type: string
+              example: generated-reset-token
+            reset_expires_at:
+              type: string
+              format: date-time
+              example: "2026-03-31T12:00:00Z"
+    ResetPasswordResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          allOf:
+            - $ref: '#/components/schemas/TokenPayload'
+            - type: object
+              properties:
+                status:
+                  type: string
+                  example: ok
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 2
+        name:
+          type: string
+          example: Jane Smith
+        email:
+          type: string
+          format: email
+          example: jane@stripedesk.local
+        role:
+          type: string
+          enum: [admin, user]
+        created_at:
+          type: string
+          example: "2026-03-31 00:00:00"
+    UserProfileResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/UserProfile'
+    ProductCatalogItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Basic Plan
+        description:
+          type: string
+          nullable: true
+          example: Access to core features for individuals.
+        price:
+          type: string
+          example: "29.99"
+        currency_code:
+          type: string
+          example: USD
+        stripe_price_id:
+          type: string
+          nullable: true
+          example: price_123
+    ProductCatalogResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductCatalogItem'
+    CheckoutSessionRequest:
+      type: object
+      required: [product_id]
+      properties:
+        product_id:
+          type: integer
+          example: 1
+    CheckoutSessionResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          additionalProperties: true
+          example:
+            order_id: 12
+            checkout_session_id: cs_test_123
+            checkout_url: https://checkout.stripe.com/c/pay/cs_test_123
+    InvoiceSummary:
+      type: object
+      additionalProperties: true
+      example:
+        id: 1
+        invoice_number: INV-20260331-00001
+        total: "29.99"
+        currency: USD
+        issued_at: "2026-03-31 12:00:00"
+        product_name: Basic Plan
+    InvoiceListResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceSummary'
+    InvoiceDetail:
+      type: object
+      additionalProperties: true
+      example:
+        id: 1
+        invoice_number: INV-20260331-00001
+        subtotal: "29.99"
+        tax: "0.00"
+        total: "29.99"
+        currency: USD
+        issued_at: "2026-03-31 12:00:00"
+        product_name: Basic Plan
+        user_name: Jane Smith
+        user_email: jane@stripedesk.local
+    InvoiceDetailResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/InvoiceDetail'
+    ReceiptDetail:
+      type: object
+      additionalProperties: true
+      example:
+        id: 1
+        receipt_number: RCP-20260331-00001
+        invoice_number: INV-20260331-00001
+        amount_paid: "29.99"
+        currency: USD
+        stripe_payment_intent: pi_123
+        paid_at: "2026-03-31 12:00:00"
+        product_name: Basic Plan
+        user_name: Jane Smith
+    ReceiptDetailResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/ReceiptDetail'
+    AdminUser:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Admin User
+        email:
+          type: string
+          format: email
+          example: admin@stripedesk.local
+        role:
+          type: string
+          example: admin
+        created_at:
+          type: string
+          example: "2026-03-31 00:00:00"
+    AdminUserListResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminUser'
+    AdminCreateUserRequest:
+      type: object
+      required: [name, email, password]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+    AdminCreateUserResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          additionalProperties: true
+          example:
+            id: 10
+            role: admin
+            requires_verification: true
+            intent: account_activation
+    AdminDeleteUserResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          additionalProperties: true
+          example:
+            id: 10
+            deleted: true
+    AdminProduct:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        price:
+          type: string
+        currency_code:
+          type: string
+        stripe_price_id:
+          type: string
+          nullable: true
+        deleted_at:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+    AdminProductListResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminProduct'
+    AdminProductUpsertRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Pro Plan
+        description:
+          type: string
+          nullable: true
+        price:
+          oneOf:
+            - type: string
+            - type: number
+          example: "49.99"
+        currency_code:
+          type: string
+          example: USD
+    IdResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            id:
+              type: integer
+              example: 1
+    Currency:
+      type: object
+      properties:
+        id:
+          type: integer
+        code:
+          type: string
+          example: USD
+        numeric_code:
+          type: string
+          nullable: true
+          example: "840"
+        name:
+          type: string
+          example: US Dollar
+        minor_unit:
+          type: integer
+          example: 2
+        symbol:
+          type: string
+          nullable: true
+          example: $
+        is_default:
+          type: boolean
+          example: true
+        created_at:
+          type: string
+          example: "2026-03-31 00:00:00"
+    CurrencyListResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Currency'
+    CurrencyCreateRequest:
+      type: object
+      required: [code, name]
+      properties:
+        code:
+          type: string
+          example: USD
+        numeric_code:
+          type: string
+          nullable: true
+          example: "840"
+        name:
+          type: string
+          example: US Dollar
+        minor_unit:
+          type: integer
+          example: 2
+        symbol:
+          type: string
+          nullable: true
+          example: $
+        is_default:
+          type: boolean
+          example: true
+    CurrencyUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        numeric_code:
+          type: string
+          nullable: true
+        minor_unit:
+          type: integer
+        symbol:
+          type: string
+          nullable: true
+        is_default:
+          type: boolean
+    StripeLog:
+      type: object
+      properties:
+        id:
+          type: integer
+        event_type:
+          type: string
+          example: checkout.session.completed
+        created_at:
+          type: string
+          example: "2026-03-31 12:00:00"
+        payload:
+          type: object
+          additionalProperties: true
+    StripeLogListResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/StripeLog'
+  responses:
+    BadRequest:
+      description: Bad request or validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    Unauthorized:
+      description: Missing, invalid, or expired JWT
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    Forbidden:
+      description: Insufficient permissions or blocked flow
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+paths:
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with email and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login succeeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a user account
+      description: Creates a normal user account and starts OTP email verification.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Registration succeeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/v1/auth/forgot:
+    post:
+      tags: [Auth]
+      summary: Request password reset OTP
+      description: Available only for user accounts. Admin accounts are rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotRequest'
+      responses:
+        '200':
+          description: OTP issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForgotResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/auth/verify-otp:
+    post:
+      tags: [Auth]
+      summary: Verify an OTP
+      description: |
+        Supported intents:
+        - registration
+        - account_activation
+        - password_reset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyOtpRequest'
+      responses:
+        '200':
+          description: OTP verified
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/VerifyOtpTokenResponse'
+                  - $ref: '#/components/schemas/VerifyOtpResetResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/v1/auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Reset password using a verified reset token
+      description: Available only for user accounts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Password reset succeeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResetPasswordResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      summary: Get authenticated user profile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Authenticated user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/products:
+    get:
+      tags: [Catalog]
+      summary: List active products
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Product catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductCatalogResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/checkout/session:
+    post:
+      tags: [Checkout]
+      summary: Create Stripe Checkout session
+      description: Normal users only. Admin users cannot purchase products.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutSessionRequest'
+      responses:
+        '201':
+          description: Checkout session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutSessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/invoices:
+    get:
+      tags: [Invoices]
+      summary: List invoices
+      description: Returns own invoices for a user, or all invoices for an admin.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Invoice summaries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/invoices/{id}:
+    get:
+      tags: [Invoices]
+      summary: Get invoice detail
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Invoice detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/receipts/{id}:
+    get:
+      tags: [Receipts]
+      summary: Get receipt detail
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Receipt detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/admin/users:
+    get:
+      tags: [Admin Users]
+      summary: List active users
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 200
+            maximum: 500
+      responses:
+        '200':
+          description: User list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Admin Users]
+      summary: Create admin account
+      description: Creates an admin account and issues email verification OTP for account activation.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCreateUserRequest'
+      responses:
+        '201':
+          description: Admin user created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCreateUserResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/users/{id}:
+    delete:
+      tags: [Admin Users]
+      summary: Soft-delete user
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: User soft-deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminDeleteUserResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/admin/products:
+    get:
+      tags: [Admin Products]
+      summary: List products for admin
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: include_deleted
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Product list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProductListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Admin Products]
+      summary: Create product
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminProductUpsertRequest'
+      responses:
+        '201':
+          description: Product created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/products/{id}:
+    put:
+      tags: [Admin Products]
+      summary: Update product
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminProductUpsertRequest'
+      responses:
+        '200':
+          description: Product updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/currencies:
+    get:
+      tags: [Admin Currencies]
+      summary: List currencies
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Currency list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrencyListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Admin Currencies]
+      summary: Create currency
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CurrencyCreateRequest'
+      responses:
+        '201':
+          description: Currency created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/currencies/{id}:
+    put:
+      tags: [Admin Currencies]
+      summary: Update currency
+      description: Currency code is immutable in this API.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CurrencyUpdateRequest'
+      responses:
+        '200':
+          description: Currency updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/admin/stripe-logs:
+    get:
+      tags: [Admin Stripe Logs]
+      summary: List Stripe logs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+            maximum: 500
+      responses:
+        '200':
+          description: Stripe log list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StripeLogListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/stripe/webhook:
+    post:
+      tags: [Webhooks]
+      summary: Stripe webhook receiver
+      description: Receives Stripe webhook events. Intended for Stripe, not browser clients.
+      parameters:
+        - name: Stripe-Signature
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Webhook accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        example: processed
+        '400':
+          $ref: '#/components/responses/BadRequest'

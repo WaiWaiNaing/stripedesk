@@ -269,13 +269,17 @@ final class Auth_password_service
 
         $this->ci->load->library('jwt_auth');
         $user = $this->ci->user_model->find((int) $user->id);
-        $token = $this->ci->jwt_auth->issue_for_user($user);
+        $access_token = $this->ci->jwt_auth->issue_access_token_for_user($user);
+        $refresh_token = $this->ci->jwt_auth->issue_refresh_token_for_user($user);
         $ttl = $this->ci->jwt_auth->get_ttl_seconds();
+        $refresh_ttl = $this->ci->jwt_auth->get_refresh_ttl_seconds();
 
         return array(true, array(
-            'access_token' => $token,
+            'access_token' => $access_token,
+            'refresh_token' => $refresh_token,
             'token_type' => 'Bearer',
             'expires_in' => $ttl,
+            'refresh_expires_in' => $refresh_ttl,
         ));
     }
 
@@ -367,14 +371,18 @@ final class Auth_password_service
 
         $this->ci->load->library('jwt_auth');
         $user = $this->ci->user_model->find((int) $user->id);
-        $jwt = $this->ci->jwt_auth->issue_for_user($user);
+        $access_token = $this->ci->jwt_auth->issue_access_token_for_user($user);
+        $refresh_token = $this->ci->jwt_auth->issue_refresh_token_for_user($user);
         $ttl = $this->ci->jwt_auth->get_ttl_seconds();
+        $refresh_ttl = $this->ci->jwt_auth->get_refresh_ttl_seconds();
 
         return array(true, array(
             'status' => 'ok',
-            'access_token' => $jwt,
+            'access_token' => $access_token,
+            'refresh_token' => $refresh_token,
             'token_type' => 'Bearer',
             'expires_in' => $ttl,
+            'refresh_expires_in' => $refresh_ttl,
         ));
     }
 

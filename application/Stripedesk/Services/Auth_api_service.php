@@ -43,12 +43,14 @@ final class Auth_api_service
             );
         }
 
-        $token = $this->ci->jwt_auth->issue_for_user($user);
+        $access_token = $this->ci->jwt_auth->issue_access_token_for_user($user);
+        $refresh_token = $this->ci->jwt_auth->issue_refresh_token_for_user($user);
         $ttl = $this->ci->jwt_auth->get_ttl_seconds();
+        $refresh_ttl = $this->ci->jwt_auth->get_refresh_ttl_seconds();
 
         return array(
             'status' => 'success',
-            'dto' => new Login_token_dto($token, 'Bearer', $ttl),
+            'dto' => new Login_token_dto($access_token, $refresh_token, 'Bearer', $ttl, $refresh_ttl),
         );
     }
 

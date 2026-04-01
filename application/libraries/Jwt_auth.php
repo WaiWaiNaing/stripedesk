@@ -13,17 +13,32 @@ class Jwt_auth
 
     public function issue_for_user($user)
     {
+        return $this->issue_access_token_for_user($user);
+    }
+
+    public function issue_access_token_for_user($user)
+    {
+        return $this->encode_token_for_user($user, $this->get_ttl_seconds(), 'access');
+    }
+
+    public function issue_refresh_token_for_user($user)
+    {
+        return $this->encode_token_for_user($user, $this->get_refresh_ttl_seconds(), 'refresh');
+    }
+
+    private function encode_token_for_user($user, $ttl, $token_type)
+    {
         $secret = $this->ci->config->item('jwt_secret', 'jwt');
-        $ttl = (int) $this->ci->config->item('jwt_ttl', 'jwt');
         $issuer = $this->ci->config->item('jwt_issuer', 'jwt');
         $now = time();
         $payload = array(
             'iss' => $issuer,
             'iat' => $now,
-            'exp' => $now + $ttl,
+            'exp' => $now + max(60, (int) $ttl),
             'sub' => (string) (int) $user->id,
             'role' => (string) $user->role,
             'email' => (string) $user->email,
+            'token_type' => (string) $token_type,
         );
 
         return \Firebase\JWT\JWT::encode($payload, $secret, 'HS256');
@@ -32,6 +47,11 @@ class Jwt_auth
     public function get_ttl_seconds()
     {
         return (int) $this->ci->config->item('jwt_ttl', 'jwt');
+    }
+
+    public function get_refresh_ttl_seconds()
+    {
+        return (int) $this->ci->config->item('jwt_refresh_ttl', 'jwt');
     }
 
     public function get_authenticated_user()
@@ -50,7 +70,7 @@ class Jwt_auth
 
         if ($token === '')
         {
-            $cookie_name = function_exists('sd_env') ? (string) sd_env('AUTH_COOKIE_NAME', 'stripedesk_access_token') : 'stripedesk_access_token';
+            $cookie_name = function_exists('sd_env') ? (string) sd_env('AUTH_ACCESS_COOKIE_NAME', sd_env('AUTH_COOKIE_NAME', 'stripedesk_access_token')) : 'stripedesk_access_token';
             if (isset($_COOKIE[$cookie_name]) && is_string($_COOKIE[$cookie_name]))
             {
                 $token = trim((string) $_COOKIE[$cookie_name]);
@@ -67,6 +87,11 @@ class Jwt_auth
             $decoded = \Firebase\JWT\JWT::decode($token, $secret, array('HS256'));
         }
         catch (Exception $e)
+        {
+            return null;
+        }
+        $token_type = isset($decoded->token_type) ? (string) $decoded->token_type : 'access';
+        if ($token_type !== 'access')
         {
             return null;
         }

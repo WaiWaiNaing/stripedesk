@@ -33,6 +33,10 @@ components:
       type: apiKey
       in: cookie
       name: stripedesk_access_token
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: stripedesk_refresh_token
   schemas:
     ErrorBody:
       type: object
@@ -683,8 +687,9 @@ paths:
       tags: [Auth]
       summary: Login with email and password
       description: |
-        On successful verified login, the API sets the JWT in the `stripedesk_access_token`
-        response cookie. The JSON body no longer returns `access_token`.
+        On successful verified login, the API sets both `stripedesk_access_token`
+        and `stripedesk_refresh_token` HttpOnly cookies. The JSON body no longer
+        returns token values.
       requestBody:
         required: true
         content:
@@ -696,7 +701,7 @@ paths:
           description: Login succeeded or verification required
           headers:
             Set-Cookie:
-              description: Set on verified login with the auth JWT cookie.
+              description: Set on verified login with the access and refresh auth cookies.
               schema:
                 type: string
           content:
@@ -794,7 +799,7 @@ paths:
           description: OTP verified
           headers:
             Set-Cookie:
-              description: Set for registration/account_activation flows after successful verification.
+              description: Set for registration/account_activation flows after successful verification with access and refresh auth cookies.
               schema:
                 type: string
           content:
@@ -812,8 +817,8 @@ paths:
       description: |
         Available only for user accounts.
 
-        On success, the API sets the auth cookie in the `Set-Cookie` response header instead
-        of returning `access_token` in the body.
+        On success, the API sets both auth cookies in the `Set-Cookie` response
+        header instead of returning token fields in the body.
       requestBody:
         required: true
         content:
@@ -825,7 +830,7 @@ paths:
           description: Password reset succeeded
           headers:
             Set-Cookie:
-              description: Set on successful password reset.
+              description: Set on successful password reset with access and refresh auth cookies.
               schema:
                 type: string
           content:

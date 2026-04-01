@@ -34,7 +34,12 @@ class Auth extends Api_base_controller
             return;
         }
         $token_data = $result['dto']->to_array();
-        $this->set_auth_cookie($token_data['access_token'], isset($token_data['expires_in']) ? (int) $token_data['expires_in'] : 86400);
+        $this->set_auth_cookies(
+            isset($token_data['access_token']) ? $token_data['access_token'] : '',
+            isset($token_data['expires_in']) ? (int) $token_data['expires_in'] : 86400,
+            isset($token_data['refresh_token']) ? $token_data['refresh_token'] : '',
+            isset($token_data['refresh_expires_in']) ? (int) $token_data['refresh_expires_in'] : 2592000
+        );
         $this->emit(\Stripedesk\Api\Api_success_response::with_data(array(
             'requires_verification' => false,
         )));
@@ -142,10 +147,17 @@ class Auth extends Api_base_controller
         }
         if ($this->should_issue_auth_cookie_for_intent(isset($body['intent']) ? $body['intent'] : ''))
         {
-            $this->set_auth_cookie(isset($result['access_token']) ? $result['access_token'] : '', isset($result['expires_in']) ? (int) $result['expires_in'] : 86400);
+            $this->set_auth_cookies(
+                isset($result['access_token']) ? $result['access_token'] : '',
+                isset($result['expires_in']) ? (int) $result['expires_in'] : 86400,
+                isset($result['refresh_token']) ? $result['refresh_token'] : '',
+                isset($result['refresh_expires_in']) ? (int) $result['refresh_expires_in'] : 2592000
+            );
             unset($result['access_token']);
+            unset($result['refresh_token']);
             unset($result['token_type']);
             unset($result['expires_in']);
+            unset($result['refresh_expires_in']);
             $result['requires_verification'] = false;
         }
         $this->emit(\Stripedesk\Api\Api_success_response::with_data($result));
@@ -177,10 +189,17 @@ class Auth extends Api_base_controller
         }
         if (isset($result['access_token']))
         {
-            $this->set_auth_cookie($result['access_token'], isset($result['expires_in']) ? (int) $result['expires_in'] : 86400);
+            $this->set_auth_cookies(
+                $result['access_token'],
+                isset($result['expires_in']) ? (int) $result['expires_in'] : 86400,
+                isset($result['refresh_token']) ? $result['refresh_token'] : '',
+                isset($result['refresh_expires_in']) ? (int) $result['refresh_expires_in'] : 2592000
+            );
             unset($result['access_token']);
+            unset($result['refresh_token']);
             unset($result['token_type']);
             unset($result['expires_in']);
+            unset($result['refresh_expires_in']);
         }
         $this->emit(\Stripedesk\Api\Api_success_response::with_data($result));
     }

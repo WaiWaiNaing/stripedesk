@@ -1092,10 +1092,12 @@ paths:
   /api/v1/admin/products:
     get:
       tags: [Admin Products]
-      summary: List products for admin
-      security:
-        - bearerAuth: []
-        - authCookie: []
+      summary: List products (public catalog)
+      description: |
+        **No authentication required.** Returns active products (same shape as the authenticated admin list).
+
+        Query parameter `include_deleted` is honored only when the request is authenticated as an **admin** (Bearer or auth cookie); otherwise it is ignored and soft-deleted rows are omitted.
+      security: []
       parameters:
         - name: include_deleted
           in: query
@@ -1109,10 +1111,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AdminProductListResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
     post:
       tags: [Admin Products]
       summary: Create product

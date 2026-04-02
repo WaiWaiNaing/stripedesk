@@ -5,20 +5,16 @@ class Products extends Api_base_controller
 {
     public function index()
     {
-        $user = $this->authenticated_user();
-        if ($user === null)
-        {
-            return;
-        }
-        if ( ! $this->require_admin($user))
-        {
-            return;
-        }
         $method = strtoupper((string) $this->input->server('REQUEST_METHOD'));
 
         if ($method === 'GET')
         {
-            $include_deleted = $this->input->get('include_deleted') ? true : false;
+            $include_deleted = false;
+            $user = $this->authenticated_user();
+            if ($user !== null && isset($user->role) && (string) $user->role === 'admin')
+            {
+                $include_deleted = $this->input->get('include_deleted') ? true : false;
+            }
             $this->load->model('product_model');
             $rows = $this->product_model->list_all_with_currency($include_deleted);
             $data = array();
@@ -41,6 +37,15 @@ class Products extends Api_base_controller
 
         if ($method === 'POST')
         {
+            $user = $this->authenticated_user();
+            if ($user === null)
+            {
+                return;
+            }
+            if ( ! $this->require_admin($user))
+            {
+                return;
+            }
             $body = $this->json_body();
             if ($body === null)
             {

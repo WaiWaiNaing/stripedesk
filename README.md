@@ -1,7 +1,7 @@
 # StripeDesk
 
-> A full-featured Stripe-powered commerce portal built with CodeIgniter 3, PHP 7.3, and MySQL 8.
-> Supports admin product & user management, Stripe Checkout, invoice/receipt generation,
+> A Stripe-powered commerce API built with CodeIgniter 3, PHP 7.3, and MySQL 8.
+> Supports product and user management, Stripe Checkout, invoice/receipt generation,
 > email notifications, and a REST API — all containerised with Docker.
 
 ---
@@ -152,14 +152,13 @@ The file also adds **EUR**, three **products**, sample **orders** / **order_item
 
 ---
 
-### Step 6 — Verify the app is running
+### Step 6 — Verify the API is running
 
 Open your browser:
 
-- **App**: [http://localhost:8081](http://localhost:8081) (or the port you set in `WEB_PORT`)
+- **API root**: [http://localhost:8081](http://localhost:8081) (or the port you set in `WEB_PORT`)
+- **Swagger UI**: [http://localhost:8081/docs/](http://localhost:8081/docs/)
 - If you add **MailHog** (or another mail catcher) to Compose, use its documented port for the email UI (not included in the default two-service setup).
-
-Log in with the admin account from your seed data once seeds are applied.
 
 ---
 
@@ -455,7 +454,7 @@ Reset password with a verified reset token.
 
 - Public
 - User flow only
-- Returns JWT so the frontend can auto-login after reset
+- Returns JWT so API clients can create a new authenticated session after reset
 
 **Request body:**
 ```json
@@ -710,7 +709,7 @@ postman/StripeDesk.postman_collection.json
 
 ## Security & Task Restriction Design
 
-This section describes how StripeDesk ensures each user can only perform tasks they are authorised for, both within the web portal and via the API.
+This section describes how StripeDesk ensures each user can only perform tasks they are authorised for via the API.
 
 ### 1. Role-based access control (RBAC)
 
@@ -1108,7 +1107,7 @@ docker compose restart web
 # Open Swagger UI
 open http://localhost:8081/docs/
 
-# Open the app in browser (macOS)
+# Open the API root in browser (macOS)
 open http://localhost:8081
 
 # MailHog (only if you add it to docker-compose)

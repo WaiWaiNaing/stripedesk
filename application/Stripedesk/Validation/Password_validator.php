@@ -4,7 +4,6 @@ namespace Stripedesk\Validation;
 
 /**
  * Shared password policy for registration, reset, and admin-created accounts.
- * Matches frontend rules in frontend/src/utils/passwordRules.js.
  */
 final class Password_validator
 {

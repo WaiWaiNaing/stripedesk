@@ -30,7 +30,3 @@ Thumbs.db
 
 # Docker (optional local overrides)
 docker-compose.override.yml
-
-# Vue / Vite
-frontend/node_modules/
-frontend/dist/

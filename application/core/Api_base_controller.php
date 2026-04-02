@@ -66,22 +66,6 @@ abstract class Api_base_controller extends CI_Controller
             return null;
         }
 
-        if (defined('ENVIRONMENT') && ENVIRONMENT === 'development')
-        {
-            $defaults = array(
-                'http://localhost:5173',
-                'http://127.0.0.1:5173',
-                'http://localhost:4173',
-                'http://127.0.0.1:4173',
-                'http://192.168.23.63:5173',
-            );
-
-            if (in_array($request_origin, $defaults, true))
-            {
-                return $request_origin;
-            }
-        }
-
         return null;
     }
 

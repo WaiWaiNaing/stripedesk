@@ -31,7 +31,7 @@ abstract class Api_base_controller extends CI_Controller
         $this->output->set_header('Vary: Origin');
         $this->output->set_header('Access-Control-Allow-Origin: ' . $allowed_origin);
         $this->output->set_header('Access-Control-Allow-Credentials: true');
-        $this->output->set_header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+        $this->output->set_header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
         $this->output->set_header('Access-Control-Allow-Headers: Authorization, Content-Type, X-Requested-With');
         if (strtoupper((string) $this->input->server('REQUEST_METHOD')) === 'OPTIONS')
         {

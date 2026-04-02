@@ -95,7 +95,7 @@ CREATE TABLE invoices (
     order_id INT NOT NULL,
     invoice_number VARCHAR(50) NOT NULL,
     total_amount DECIMAL(10, 2) NOT NULL,
-    status ENUM('unpaid', 'paid', 'void') DEFAULT 'unpaid',
+    status ENUM('pending', 'unpaid', 'paid', 'void') DEFAULT 'unpaid',
     due_date DATE NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_by INT NULL,

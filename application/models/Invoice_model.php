@@ -49,6 +49,21 @@ class Invoice_model extends MY_Model
         return $this->db->get()->result();
     }
 
+    /**
+     * Invoices whose order belongs to the given user (not scoped by actor).
+     */
+    public function list_for_order_user_id($order_user_id)
+    {
+        $this->db->select('invoices.*');
+        $this->db->from($this->table);
+        $this->db->join('orders', 'orders.id = invoices.order_id');
+        $this->db->where('invoices.deleted_at', null);
+        $this->db->where('orders.deleted_at', null);
+        $this->db->where('orders.user_id', (int) $order_user_id);
+        $this->db->order_by('invoices.id', 'DESC');
+        return $this->db->get()->result();
+    }
+
     public function find_with_order_for_access($invoice_id)
     {
         $this->db->select('invoices.*, orders.user_id AS order_user_id');

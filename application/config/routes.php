@@ -14,13 +14,17 @@ $route['api/v1/auth/resend'] = 'api/auth/resend';
 $route['api/v1/auth/verify-otp'] = 'api/auth/verify_otp';
 $route['api/v1/auth/reset-password'] = 'api/auth/reset_password';
 $route['api/v1/invoices'] = 'api/invoices/index';
+$route['api/v1/invoices/(:num)/pay'] = 'api/invoices/pay/$1';
+$route['api/v1/invoices/(:num)/status'] = 'api/invoices/update_status/$1';
 $route['api/v1/invoices/(:num)'] = 'api/invoices/show/$1';
 $route['api/v1/receipts/(:num)'] = 'api/receipts/show/$1';
 $route['api/v1/products'] = 'api/products/index';
 
 $route['api/v1/checkout/session'] = 'api/checkout/session';
+$route['api/v1/checkout/invoice'] = 'api/checkout/invoice';
 $route['api/v1/users/(:num)/cart/items'] = 'api/carts/add_item_for_user/$1';
 $route['api/v1/users/(:num)/cart'] = 'api/carts/show_for_user/$1';
+$route['api/v1/users/(:num)/invoices'] = 'api/invoices/index_for_user/$1';
 $route['api/v1/carts'] = 'api/carts/create';
 $route['api/v1/carts/(:num)/items'] = 'api/carts/add_item/$1';
 $route['api/v1/carts/(:num)'] = 'api/carts/show/$1';

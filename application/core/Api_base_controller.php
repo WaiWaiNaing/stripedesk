@@ -129,6 +129,12 @@ abstract class Api_base_controller extends CI_Controller
 
         return $user;
     }
+    protected function optional_authenticated_user()
+    {
+        $this->load->library('jwt_auth');
+        $user = $this->jwt_auth->get_authenticated_user();
+        return $user ?: null;
+    }
 
     protected function require_admin($user)
     {

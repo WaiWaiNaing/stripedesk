@@ -10,7 +10,8 @@ class Products extends Api_base_controller
         if ($method === 'GET')
         {
             $include_deleted = false;
-            $user = $this->authenticated_user();
+            // Public catalog: no auth required, but admins can optionally include soft-deleted rows.
+            $user = $this->optional_authenticated_user();
             if ($user !== null && isset($user->role) && (string) $user->role === 'admin')
             {
                 $include_deleted = $this->input->get('include_deleted') ? true : false;

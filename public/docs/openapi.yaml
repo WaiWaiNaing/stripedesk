@@ -136,15 +136,7 @@ components:
         expires_in:
           type: integer
           example: 86400
-    RefreshRequest:
-      type: object
-      description: |
-        Send `refresh_token` for SPA / mobile clients. For cookie-based clients you may send an empty JSON object `{}` and rely on the refresh HttpOnly cookie instead.
-      properties:
-        refresh_token:
-          type: string
-          description: JWT refresh token issued at login or from a previous refresh.
-    AuthTokensResponse:
+    RefreshResponse:
       type: object
       required: [success, data]
       properties:
@@ -152,16 +144,13 @@ components:
           type: boolean
           example: true
         data:
-          allOf:
-            - $ref: '#/components/schemas/TokenPayload'
-            - type: object
-              required: [refresh_token, refresh_expires_in]
-              properties:
-                refresh_token:
-                  type: string
-                refresh_expires_in:
-                  type: integer
-                  example: 2592000
+          type: object
+          required: [status]
+          properties:
+            status:
+              type: string
+              enum: [ok]
+              example: ok
     LoginResponse:
       type: object
       required: [success, data]
@@ -741,31 +730,24 @@ paths:
   /api/v1/auth/refresh:
     post:
       tags: [Auth]
-      summary: Refresh access and refresh tokens
+      summary: Refresh access and refresh tokens (cookie-only)
       description: |
-        Validates the refresh JWT (from the request body or the refresh HttpOnly cookie), then issues **new** access and refresh tokens (rotation). The previous refresh token is not revoked server-side but expires by `exp`; clients should discard the old refresh token after a successful response.
+        Reads the refresh JWT from the **refresh HttpOnly cookie** only (no token in the request body). Issues new access and refresh tokens and returns them **only** via `Set-Cookie` headers, same as login. The JSON body does not contain tokens — only `{ "data": { "status": "ok" } }` on success.
 
-        On success, auth cookies are updated the same way as login when cookies are used.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RefreshRequest'
+        Call this with `credentials: 'include'` (fetch) or equivalent so the browser sends cookies cross-origin when `CORS_ALLOW_ORIGIN` and cookie `SameSite`/`Secure` allow it.
+      security: []
       responses:
         '200':
-          description: New tokens issued
+          description: New tokens set on cookies; no tokens in JSON
           headers:
             Set-Cookie:
-              description: Updated access and refresh auth cookies when applicable.
+              description: Updated access and refresh auth cookies.
               schema:
                 type: string
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthTokensResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
+                $ref: '#/components/schemas/RefreshResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /api/v1/auth/register:

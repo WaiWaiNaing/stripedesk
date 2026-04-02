@@ -66,6 +66,14 @@ abstract class Api_base_controller extends CI_Controller
             return null;
         }
 
+        if (defined('ENVIRONMENT') && ENVIRONMENT === 'development')
+        {
+            if (preg_match('#\Ahttps?://(localhost|127\.0\.0\.1)(:\d+)?\z#', $request_origin))
+            {
+                return $request_origin;
+            }
+        }
+
         return null;
     }
 

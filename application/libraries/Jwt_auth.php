@@ -109,4 +109,39 @@ class Jwt_auth
 
         return $user;
     }
+    public function get_user_from_refresh_token($token)
+    {
+        $token = is_string($token) ? trim($token) : '';
+        if ($token === '')
+        {
+            return null;
+        }
+        $secret = $this->ci->config->item('jwt_secret', 'jwt');
+        try
+        {
+            $decoded = \Firebase\JWT\JWT::decode($token, $secret, array('HS256'));
+        }
+        catch (Exception $e)
+        {
+            return null;
+        }
+        $token_type = isset($decoded->token_type) ? (string) $decoded->token_type : '';
+        if ($token_type !== 'refresh')
+        {
+            return null;
+        }
+        $sub = isset($decoded->sub) ? (int) $decoded->sub : 0;
+        if ($sub < 1)
+        {
+            return null;
+        }
+        $this->ci->load->model('user_model');
+        $user = $this->ci->user_model->find($sub);
+        if ( ! $user || $user->deleted_at !== null)
+        {
+            return null;
+        }
+
+        return $user;
+    }
 }

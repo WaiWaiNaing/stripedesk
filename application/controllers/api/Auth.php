@@ -45,6 +45,59 @@ class Auth extends Api_base_controller
         )));
     }
 
+    public function refresh()
+    {
+        if ( ! $this->require_method('POST'))
+        {
+            return;
+        }
+        $raw = $this->input->raw_input_stream;
+        $raw = is_string($raw) ? trim($raw) : '';
+        $body = array();
+        if ($raw !== '')
+        {
+            $body = json_decode($raw, true);
+            if ( ! is_array($body))
+            {
+                $this->emit(\Stripedesk\Api\Api_error_response::create(400, 'invalid_json', 'JSON body required'));
+                return;
+            }
+        }
+        $refresh = '';
+        if (isset($body['refresh_token']) && is_string($body['refresh_token']))
+        {
+            $refresh = trim($body['refresh_token']);
+        }
+        if ($refresh === '' && function_exists('sd_env'))
+        {
+            $cookie_name = (string) sd_env('AUTH_REFRESH_COOKIE_NAME', 'stripedesk_refresh_token');
+            if (isset($_COOKIE[$cookie_name]) && is_string($_COOKIE[$cookie_name]))
+            {
+                $refresh = trim((string) $_COOKIE[$cookie_name]);
+            }
+        }
+        if ($refresh === '')
+        {
+            $this->emit(\Stripedesk\Api\Api_error_response::create(400, 'refresh_token_required', 'refresh_token is required'));
+            return;
+        }
+        $svc = new \Stripedesk\Services\Auth_api_service($this);
+        $result = $svc->refresh_with_refresh_token($refresh);
+        if ( ! isset($result['status']) || $result['status'] !== 'success' || ! isset($result['dto']))
+        {
+            $this->emit(\Stripedesk\Api\Api_error_response::create(401, 'invalid_refresh_token', 'Invalid or expired refresh token'));
+            return;
+        }
+        $token_data = $result['dto']->to_array();
+        $this->set_auth_cookies(
+            isset($token_data['access_token']) ? $token_data['access_token'] : '',
+            isset($token_data['expires_in']) ? (int) $token_data['expires_in'] : 86400,
+            isset($token_data['refresh_token']) ? $token_data['refresh_token'] : '',
+            isset($token_data['refresh_expires_in']) ? (int) $token_data['refresh_expires_in'] : 2592000
+        );
+        $this->emit(\Stripedesk\Api\Api_success_response::with_data($token_data));
+    }
+
     public function register()
     {
         if ( ! $this->require_method('POST'))

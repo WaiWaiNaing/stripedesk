@@ -136,6 +136,32 @@ components:
         expires_in:
           type: integer
           example: 86400
+    RefreshRequest:
+      type: object
+      description: |
+        Send `refresh_token` for SPA / mobile clients. For cookie-based clients you may send an empty JSON object `{}` and rely on the refresh HttpOnly cookie instead.
+      properties:
+        refresh_token:
+          type: string
+          description: JWT refresh token issued at login or from a previous refresh.
+    AuthTokensResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          allOf:
+            - $ref: '#/components/schemas/TokenPayload'
+            - type: object
+              required: [refresh_token, refresh_expires_in]
+              properties:
+                refresh_token:
+                  type: string
+                refresh_expires_in:
+                  type: integer
+                  example: 2592000
     LoginResponse:
       type: object
       required: [success, data]
@@ -710,6 +736,36 @@ paths:
                 oneOf:
                   - $ref: '#/components/schemas/LoginResponse'
                   - $ref: '#/components/schemas/LoginVerificationRequiredResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh access and refresh tokens
+      description: |
+        Validates the refresh JWT (from the request body or the refresh HttpOnly cookie), then issues **new** access and refresh tokens (rotation). The previous refresh token is not revoked server-side but expires by `exp`; clients should discard the old refresh token after a successful response.
+
+        On success, auth cookies are updated the same way as login when cookies are used.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: New tokens issued
+          headers:
+            Set-Cookie:
+              description: Updated access and refresh auth cookies when applicable.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokensResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /api/v1/auth/register:

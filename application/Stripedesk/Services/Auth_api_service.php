@@ -54,6 +54,29 @@ final class Auth_api_service
         );
     }
 
+    public function refresh_with_refresh_token($refresh_token_string)
+    {
+        $user = $this->ci->jwt_auth->get_user_from_refresh_token($refresh_token_string);
+        if ($user === null)
+        {
+            return array('status' => 'invalid_refresh');
+        }
+        if ( ! Email_verification::is_verified($user))
+        {
+            return array('status' => 'invalid_refresh');
+        }
+
+        $access_token = $this->ci->jwt_auth->issue_access_token_for_user($user);
+        $refresh_token = $this->ci->jwt_auth->issue_refresh_token_for_user($user);
+        $ttl = $this->ci->jwt_auth->get_ttl_seconds();
+        $refresh_ttl = $this->ci->jwt_auth->get_refresh_ttl_seconds();
+
+        return array(
+            'status' => 'success',
+            'dto' => new Login_token_dto($access_token, $refresh_token, 'Bearer', $ttl, $refresh_ttl),
+        );
+    }
+
     public function profile_for_user_id($user_id)
     {
         $user = $this->ci->user_model->find((int) $user_id);

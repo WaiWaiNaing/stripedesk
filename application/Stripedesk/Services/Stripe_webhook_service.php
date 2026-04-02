@@ -11,6 +11,7 @@ final class Stripe_webhook_service
         $this->ci = $ci;
         $this->ci->config->load('stripe', true);
         $this->ci->load->model('order_model');
+        $this->ci->load->model('cart_model');
         $this->ci->load->model('invoice_model');
         $this->ci->load->model('receipt_model');
         $this->ci->load->model('stripe_log_model');
@@ -48,6 +49,8 @@ final class Stripe_webhook_service
             $session = $event->data->object;
             $metadata = isset($session->metadata) ? $session->metadata : null;
             $order_id = $metadata && isset($metadata->order_id) ? (int) $metadata->order_id : 0;
+            $cart_id = $metadata && isset($metadata->cart_id) ? (int) $metadata->cart_id : 0;
+            $meta_user_id = $metadata && isset($metadata->user_id) ? (int) $metadata->user_id : 0;
             if ($order_id < 1)
             {
                 return array(true, 200, 'no_order_id');
@@ -62,6 +65,18 @@ final class Stripe_webhook_service
             $this->ci->order_model->update_row($order_id, array(
                 'status' => 'paid',
             ));
+
+            if ($cart_id > 0)
+            {
+                $cart = $this->ci->cart_model->find($cart_id);
+                if ($cart && ($meta_user_id < 1 || (int) $cart->user_id === (int) $meta_user_id))
+                {
+                    $this->ci->cart_model->update_row($cart_id, array(
+                        'status' => 'converted',
+                        'updated_by' => $meta_user_id > 0 ? (int) $meta_user_id : null,
+                    ));
+                }
+            }
 
             $invoice = $this->ci->invoice_model->get_by_order_id($order_id);
             if ( ! $invoice)
@@ -104,9 +119,22 @@ final class Stripe_webhook_service
             $session = $event->data->object;
             $metadata = isset($session->metadata) ? $session->metadata : null;
             $order_id = $metadata && isset($metadata->order_id) ? (int) $metadata->order_id : 0;
+            $cart_id = $metadata && isset($metadata->cart_id) ? (int) $metadata->cart_id : 0;
+            $meta_user_id = $metadata && isset($metadata->user_id) ? (int) $metadata->user_id : 0;
             if ($order_id > 0)
             {
                 $this->ci->order_model->update_row($order_id, array('status' => 'cancelled'));
+            }
+            if ($cart_id > 0)
+            {
+                $cart = $this->ci->cart_model->find($cart_id);
+                if ($cart && ($meta_user_id < 1 || (int) $cart->user_id === (int) $meta_user_id))
+                {
+                    $this->ci->cart_model->update_row($cart_id, array(
+                        'status' => 'expired',
+                        'updated_by' => $meta_user_id > 0 ? (int) $meta_user_id : null,
+                    ));
+                }
             }
         }
 

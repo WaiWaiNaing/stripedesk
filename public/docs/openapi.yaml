@@ -350,10 +350,17 @@ components:
             $ref: '#/components/schemas/ProductCatalogItem'
     CheckoutSessionRequest:
       type: object
-      required: [product_id]
       properties:
         product_id:
           type: integer
+          example: 1
+        cart_id:
+          type: integer
+          nullable: true
+          example: 10
+        quantity:
+          type: integer
+          nullable: true
           example: 1
     CheckoutSessionResponse:
       type: object
@@ -369,6 +376,67 @@ components:
             order_id: 12
             checkout_session_id: cs_test_123
             checkout_url: https://checkout.stripe.com/c/pay/cs_test_123
+    CartCreateLineItem:
+      type: object
+      required: [product_id]
+      properties:
+        product_id:
+          type: integer
+          example: 1
+        quantity:
+          type: integer
+          nullable: true
+          example: 1
+    CartCreateRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartCreateLineItem'
+        expires_days:
+          type: integer
+          minimum: 1
+          maximum: 30
+          nullable: true
+          example: 7
+    CartLine:
+      type: object
+      required: [product_id, product_name, quantity, price]
+      properties:
+        product_id:
+          type: integer
+          example: 1
+        product_name:
+          type: string
+          example: Basic Plan
+        quantity:
+          type: integer
+          example: 2
+        price:
+          type: string
+          example: "29.99"
+    CartDetail:
+      type: object
+      required: [cart, lines]
+      properties:
+        cart:
+          type: object
+          additionalProperties: true
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartLine'
+    CartDetailResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/CartDetail'
     InvoiceSummary:
       type: object
       additionalProperties: true
@@ -940,6 +1008,58 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /api/v1/carts:
+    post:
+      tags: [Checkout]
+      summary: Create cart blueprint (invoice draft)
+      security:
+        - bearerAuth: []
+        - authCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartCreateRequest'
+      responses:
+        '201':
+          description: Cart created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartDetailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/carts/{id}:
+    get:
+      tags: [Checkout]
+      summary: Get cart blueprint detail
+      security:
+        - bearerAuth: []
+        - authCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Cart detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/v1/invoices:
     get:
       tags: [Invoices]

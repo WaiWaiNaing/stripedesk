@@ -458,12 +458,26 @@ final class Auth_password_service
      */
     private function send_otp_email($email, $otp_plain, $intent)
     {
+        $t0 = microtime(true);
+        $transport = 'php_mail';
+        if (function_exists('sd_env'))
+        {
+            $host = trim((string) sd_env('MAIL_HOST', ''));
+            if ($host !== '')
+            {
+                $transport = 'smtp';
+            }
+        }
+
         $mailer = new Otp_mailer();
         $sent = $mailer->send($email, $otp_plain, $intent);
+        $dt_ms = (int) round((microtime(true) - $t0) * 1000);
         $this->ci->stripe_log_model->log_event('auth.otp.email_dispatch', array(
             'email' => $email,
             'intent' => $intent,
             'sent' => $sent,
+            'transport' => $transport,
+            'duration_ms' => $dt_ms,
         ));
     }
 }

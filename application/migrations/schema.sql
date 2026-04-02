@@ -180,3 +180,35 @@ CREATE TABLE otp_verifications (
     KEY idx_otp_verifications_otp_expires_at (otp_expires_at),
     CONSTRAINT otp_verifications_user_id_fk FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
+
+CREATE TABLE carts (
+    id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    status ENUM('active','checking_out','converted','expired') NOT NULL DEFAULT 'active',
+    total_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_by INT NULL,
+    updated_by INT NULL,
+    deleted_at TIMESTAMP NULL DEFAULT NULL,
+    KEY idx_carts_user (user_id),
+    KEY idx_carts_status (status),
+    KEY idx_carts_deleted_at (deleted_at),
+    CONSTRAINT fk_carts_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+);
+
+CREATE TABLE cart_items (
+    id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    cart_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL DEFAULT 1,
+    price DECIMAL(10,2) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_cart_items_cart_product (cart_id, product_id),
+    KEY idx_cart_items_cart (cart_id),
+    KEY idx_cart_items_product (product_id),
+    CONSTRAINT fk_cart_items_cart FOREIGN KEY (cart_id) REFERENCES carts (id) ON DELETE CASCADE,
+    CONSTRAINT fk_cart_items_product FOREIGN KEY (product_id) REFERENCES products (id)
+);

@@ -20,6 +20,14 @@ class Cart_item_model extends MY_Model
         return $this->db->get($this->table)->result();
     }
 
+    public function find_by_cart_and_product($cart_id, $product_id)
+    {
+        return $this->db->get_where($this->table, array(
+            'cart_id' => (int) $cart_id,
+            'product_id' => (int) $product_id,
+        ))->row();
+    }
+
     public function list_with_product_names_for_cart($cart_id)
     {
         $this->db->select('cart_items.*, products.name AS product_name, products.description AS product_description, products.currency_id AS product_currency_id');

@@ -33,7 +33,8 @@
   <script>
     window.onload = function () {
       window.ui = SwaggerUIBundle({
-        url: './openapi.yaml',
+        // Bump ?v= when openapi.yaml changes (avoids stale cached spec in Swagger UI).
+        url: './openapi.yaml?v=4',
         dom_id: '#swagger-ui',
         deepLinking: true,
         presets: [

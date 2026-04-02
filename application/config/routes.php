@@ -19,7 +19,10 @@ $route['api/v1/receipts/(:num)'] = 'api/receipts/show/$1';
 $route['api/v1/products'] = 'api/products/index';
 
 $route['api/v1/checkout/session'] = 'api/checkout/session';
+$route['api/v1/users/(:num)/cart/items'] = 'api/carts/add_item_for_user/$1';
+$route['api/v1/users/(:num)/cart'] = 'api/carts/show_for_user/$1';
 $route['api/v1/carts'] = 'api/carts/create';
+$route['api/v1/carts/(:num)/items'] = 'api/carts/add_item/$1';
 $route['api/v1/carts/(:num)'] = 'api/carts/show/$1';
 $route['api/v1/stripe/webhook'] = 'api/stripe/webhook';
 

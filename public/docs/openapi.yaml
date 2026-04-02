@@ -401,9 +401,22 @@ components:
           maximum: 30
           nullable: true
           example: 7
+    CartAddItemRequest:
+      type: object
+      required: [product_id]
+      properties:
+        product_id:
+          type: integer
+          example: 1
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 25
+          nullable: true
+          example: 1
     CartLine:
       type: object
-      required: [product_id, product_name, quantity, price]
+      required: [product_id, product_name, quantity, price, line_total]
       properties:
         product_id:
           type: integer
@@ -411,12 +424,25 @@ components:
         product_name:
           type: string
           example: Basic Plan
+        product_description:
+          type: string
+          nullable: true
+          example: Full access for one seat.
         quantity:
           type: integer
           example: 2
         price:
           type: string
+          description: Unit price snapshot stored on the line
           example: "29.99"
+        line_total:
+          type: string
+          description: quantity × price, two decimal places
+          example: "59.98"
+        currency_id:
+          type: integer
+          nullable: true
+          example: 1
     CartDetail:
       type: object
       required: [cart, lines]
@@ -764,6 +790,12 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorBody'
+    Conflict:
+      description: Request conflicts with current state — e.g. `cart_already_exists` when the user already has an active cart
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
 paths:
   /api/v1/auth/login:
     post:
@@ -1012,6 +1044,10 @@ paths:
     post:
       tags: [Checkout]
       summary: Create cart blueprint (invoice draft)
+      description: >
+        Each user may have at most one cart with status `active`. If the authenticated user
+        already has an active cart (even if expired), the API returns 409; use
+        `POST /api/v1/users/{userId}/cart/items` or the existing cart id to add lines instead.
       security:
         - bearerAuth: []
         - authCookie: []
@@ -1034,6 +1070,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /api/v1/carts/{id}:
     get:
       tags: [Checkout]
@@ -1054,6 +1092,111 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CartDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/users/{userId}/cart:
+    get:
+      tags: [Checkout]
+      summary: Get active cart for a user (by user id)
+      description: >
+        Returns the latest active, non-expired cart for the given user id.
+        Normal users may only use their own id; admins may use any id.
+        If the user has no qualifying cart, the API responds with 404.
+      security:
+        - bearerAuth: []
+        - authCookie: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Cart detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/users/{userId}/cart/items:
+    post:
+      tags: [Checkout]
+      summary: Add product to a user's cart (by user id)
+      description: >
+        Resolves the user's latest active, non-expired cart, or creates an empty one if needed,
+        then adds or merges the line. Same rules as POST /api/v1/carts/{id}/items.
+        Normal users may only use their own id; admins may use any id.
+      security:
+        - bearerAuth: []
+        - authCookie: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartAddItemRequest'
+      responses:
+        '200':
+          description: Updated cart detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartDetailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/carts/{id}/items:
+    post:
+      tags: [Checkout]
+      summary: Add product to cart (merge quantity if line exists)
+      description: >
+        Appends quantity to an active, non-expired cart. If the product is already in the cart,
+        quantities are merged (capped at 25 per product). Returns the full cart detail with line totals.
+      security:
+        - bearerAuth: []
+        - authCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartAddItemRequest'
+      responses:
+        '200':
+          description: Updated cart detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartDetailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':

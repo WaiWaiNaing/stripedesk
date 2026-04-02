@@ -23,16 +23,26 @@ final class Cart_detail_dto
             }
         }
 
+        $cart_arr = array(
+            'id' => (int) $this->cart->id,
+            'user_id' => (int) $this->cart->user_id,
+            'status' => (string) $this->cart->status,
+            'total_amount' => (string) $this->cart->total_amount,
+            'expires_at' => $this->cart->expires_at !== null ? (string) $this->cart->expires_at : null,
+            'created_at' => $this->cart->created_at !== null ? (string) $this->cart->created_at : null,
+            'updated_at' => $this->cart->updated_at !== null ? (string) $this->cart->updated_at : null,
+        );
+        if ( ! empty($this->items))
+        {
+            $first = $this->items[0];
+            if ($first instanceof Cart_line_dto && $first->currency_id() !== null)
+            {
+                $cart_arr['currency_id'] = $first->currency_id();
+            }
+        }
+
         return array(
-            'cart' => array(
-                'id' => (int) $this->cart->id,
-                'user_id' => (int) $this->cart->user_id,
-                'status' => (string) $this->cart->status,
-                'total_amount' => (string) $this->cart->total_amount,
-                'expires_at' => $this->cart->expires_at !== null ? (string) $this->cart->expires_at : null,
-                'created_at' => $this->cart->created_at !== null ? (string) $this->cart->created_at : null,
-                'updated_at' => $this->cart->updated_at !== null ? (string) $this->cart->updated_at : null,
-            ),
+            'cart' => $cart_arr,
             'lines' => $line_arrays,
         );
     }

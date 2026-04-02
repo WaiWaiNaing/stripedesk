@@ -1,0 +1,28 @@
+# Production-style compose: pull backend from GHCR (no bind mount, no git on server).
+# Requires /var/www/stripedesk/.env with DB_HOST, JWT_SECRET, MAIL_*, etc.
+# MySQL on host: omit the db service (set DB_HOST to Docker gateway, e.g. 172.18.0.1).
+#
+# Usage on server:
+#   docker compose -f docker-compose.ghcr.yml pull web
+#   docker compose -f docker-compose.ghcr.yml up -d web
+#
+# Image default matches ghcr.io/<owner>/<repo>/backend:latest from GitHub Actions.
+
+services:
+  web:
+    image: ${STRIPEDESK_IMAGE:-ghcr.io/waiwainaing/stripedesk/backend:latest}
+    container_name: stripedesk-web
+    pull_policy: always
+    ports:
+      - "${WEB_PORT:-8081}:80"
+    env_file:
+      - .env
+    environment:
+      APACHE_DOCUMENT_ROOT: /var/www/html/public
+    networks:
+      - stripedesk
+    restart: unless-stopped
+
+networks:
+  stripedesk:
+    driver: bridge

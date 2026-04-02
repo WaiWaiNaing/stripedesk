@@ -1,0 +1,73 @@
+# SSH into your VPS, copy compose file, pull GHCR image, docker compose up.
+# No git on the server. Keep .env only on the server (never commit it).
+#
+# GitHub → Settings → Secrets and variables → Actions, add:
+#   DEPLOY_SSH_HOST       e.g. 159.223.95.19 or api-stripedesk.duolinkmm.com
+#   DEPLOY_SSH_USER       e.g. root
+#   DEPLOY_SSH_PASSWORD   SSH account password (server must allow PasswordAuthentication)
+# Optional if the GHCR package is private:
+#   GHCR_PULL_USER        GitHub username
+#   GHCR_PULL_TOKEN       classic PAT with read:packages (fine-grained: read for this package)
+#
+# Server: mkdir -p /var/www/stripedesk && place .env there (DB_*, JWT_*, MAIL_*, etc.)
+
+name: Deploy backend via SSH
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Push Backend Image to GHCR
+    types:
+      - completed
+
+concurrency:
+  group: deploy-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Ensure deploy directory exists on server
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          password: ${{ secrets.DEPLOY_SSH_PASSWORD }}
+          script: mkdir -p /var/www/stripedesk
+
+      - name: Upload compose file
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          password: ${{ secrets.DEPLOY_SSH_PASSWORD }}
+          source: docker-compose.ghcr.yml
+          target: /var/www/stripedesk/
+          strip_components: 0
+
+      - name: Pull image and restart web
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          password: ${{ secrets.DEPLOY_SSH_PASSWORD }}
+          script: |
+            set -euo pipefail
+            cd /var/www/stripedesk
+            if [ -n "${{ secrets.GHCR_PULL_TOKEN }}" ]; then
+              echo "${{ secrets.GHCR_PULL_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_PULL_USER }}" --password-stdin
+            fi
+            docker compose -f docker-compose.ghcr.yml pull web
+            docker compose -f docker-compose.ghcr.yml up -d web
+            docker compose -f docker-compose.ghcr.yml ps

@@ -14,9 +14,12 @@ final class Invoice_api_service
     public function __construct($ci)
     {
         $this->ci = $ci;
+        $this->ci->config->load('stripe', true);
         $this->ci->load->model('invoice_model');
         $this->ci->load->model('order_model');
         $this->ci->load->model('order_item_model');
+        $this->ci->load->model('currency_model');
+        $this->ci->load->model('stripe_log_model');
     }
 
     public function list_summaries_for_actor($user)
@@ -58,7 +61,7 @@ final class Invoice_api_service
     }
 
     /**
-     * Owner (or admin) initiates payment for a pending invoice. Stripe is not wired yet; response reserves fields for checkout URL / session.
+     * Owner (or admin) initiates payment for a pending invoice via Stripe Checkout.
      *
      * @return array{0:bool,1:array|string}
      */
@@ -80,14 +83,133 @@ final class Invoice_api_service
             return array(false, 'invoice_not_pending');
         }
 
+        $secret = $this->ci->config->item('stripe_secret_key', 'stripe');
+        if ($secret === null || $secret === '')
+        {
+            return array(false, 'stripe_not_configured');
+        }
+
+        $order = $arr['order'];
+        $order_id = isset($order['id']) ? (int) $order['id'] : 0;
+        if ($order_id < 1)
+        {
+            return array(false, 'order_not_found');
+        }
+
+        $order_row = $this->ci->order_model->find($order_id);
+        if ( ! $order_row)
+        {
+            return array(false, 'order_not_found');
+        }
+
+        $line_rows = $this->ci->order_item_model->list_with_product_names_for_order($order_id);
+        if (empty($line_rows))
+        {
+            return array(false, 'invoice_has_no_items');
+        }
+
+        $currency_code = 'usd';
+        $minor = 2;
+        if (isset($order_row->currency_id))
+        {
+            $currency_row = $this->ci->currency_model->find((int) $order_row->currency_id);
+            if ($currency_row)
+            {
+                $currency_code = strtolower((string) $currency_row->code);
+                if (isset($currency_row->minor_unit))
+                {
+                    $minor = (int) $currency_row->minor_unit;
+                }
+            }
+        }
+
+        $line_items = array();
+        foreach ($line_rows as $line)
+        {
+            $qty = isset($line->quantity) ? (int) $line->quantity : 1;
+            if ($qty < 1) $qty = 1;
+            $unit_price = isset($line->unit_price) ? (float) $line->unit_price : 0.0;
+            $unit_amount = (int) round($unit_price * pow(10, $minor));
+            if ($unit_amount < 1) $unit_amount = 1;
+
+            $line_items[] = array(
+                'quantity' => $qty,
+                'price_data' => array(
+                    'currency' => $currency_code,
+                    'unit_amount' => $unit_amount,
+                    'product_data' => array(
+                        'name' => isset($line->product_name) ? (string) $line->product_name : ('Product #' . (int) $line->product_id),
+                    ),
+                ),
+            );
+        }
+
+        \Stripe\Stripe::setApiKey($secret);
+
+        $session_id = '';
+        $checkout_url = '';
+        $reused_existing_session = false;
+
+        if (isset($order_row->stripe_session_id) && trim((string) $order_row->stripe_session_id) !== '')
+        {
+            try
+            {
+                $existing = \Stripe\Checkout\Session::retrieve((string) $order_row->stripe_session_id);
+                if ($existing && isset($existing->status) && (string) $existing->status === 'open')
+                {
+                    $session_id = (string) $existing->id;
+                    $checkout_url = isset($existing->url) ? (string) $existing->url : '';
+                    $reused_existing_session = true;
+                }
+            }
+            catch (\Exception $e)
+            {
+                // If stale/invalid, create a fresh session below.
+            }
+        }
+
+        if ($session_id === '' || $checkout_url === '')
+        {
+            $success_url = $this->ci->config->item('stripe_success_url', 'stripe');
+            $cancel_url = $this->ci->config->item('stripe_cancel_url', 'stripe');
+            $metadata = array(
+                'invoice_id' => (string) (int) $inv['id'],
+                'order_id' => (string) $order_id,
+                'user_id' => (string) (int) $actor_user->id,
+            );
+
+            $session = \Stripe\Checkout\Session::create(array(
+                'mode' => 'payment',
+                'success_url' => $success_url,
+                'cancel_url' => $cancel_url,
+                'metadata' => $metadata,
+                'line_items' => $line_items,
+            ));
+
+            $session_id = (string) $session->id;
+            $checkout_url = isset($session->url) ? (string) $session->url : '';
+
+            $this->ci->order_model->update_row($order_id, array(
+                'stripe_session_id' => $session_id,
+                'updated_by' => (int) $actor_user->id,
+            ));
+        }
+
+        $this->ci->stripe_log_model->log_event('invoice.payment.session.created', array(
+            'invoice_id' => (int) $inv['id'],
+            'order_id' => $order_id,
+            'session_id' => $session_id,
+            'reused_existing_session' => $reused_existing_session,
+        ));
+
         return array(true, array(
             'invoice' => $arr['invoice'],
             'order' => $arr['order'],
             'lines' => $arr['lines'],
             'payment' => array(
-                'stripe_checkout_url' => null,
-                'stripe_checkout_session_id' => null,
-                'note' => 'Stripe Checkout will be started from this endpoint when integrated; completion will move the invoice to paid (e.g. via webhook).',
+                'stripe_checkout_url' => $checkout_url,
+                'stripe_checkout_session_id' => $session_id,
+                'status' => $reused_existing_session ? 'reused_open_session' : 'created',
             ),
         ));
     }

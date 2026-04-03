@@ -97,6 +97,47 @@ class Carts extends Api_base_controller
         $this->emit(\Stripedesk\Api\Api_success_response::with_data($result->to_array(), 200));
     }
 
+    public function remove_item($id)
+    {
+        $user = $this->authenticated_user();
+        if ($user === null)
+        {
+            return;
+        }
+
+        if ( ! $this->require_method('POST'))
+        {
+            return;
+        }
+
+        $body = $this->json_body();
+        if ($body === null)
+        {
+            return;
+        }
+
+        $svc = new \Stripedesk\Services\Cart_api_service($this);
+        list($ok, $result) = $svc->remove_item_for_actor($user, (int) $id, $body);
+        if (! $ok)
+        {
+            $msg = (string) $result;
+            if ($msg === 'cart not found')
+            {
+                $this->emit(\Stripedesk\Api\Api_error_response::create(404, 'not_found', 'Cart not found'));
+                return;
+            }
+            if ($msg === 'cart line not found')
+            {
+                $this->emit(\Stripedesk\Api\Api_error_response::create(404, 'not_found', 'Cart line not found'));
+                return;
+            }
+            $this->emit(\Stripedesk\Api\Api_error_response::create(400, 'cart_item_remove_failed', $msg));
+            return;
+        }
+
+        $this->emit(\Stripedesk\Api\Api_success_response::with_data($result->to_array(), 200));
+    }
+
     public function show_for_user($user_id)
     {
         $user = $this->authenticated_user();
@@ -161,6 +202,57 @@ class Carts extends Api_base_controller
                 return;
             }
             $this->emit(\Stripedesk\Api\Api_error_response::create(400, 'cart_item_add_failed', $msg));
+            return;
+        }
+
+        $this->emit(\Stripedesk\Api\Api_success_response::with_data($result->to_array(), 200));
+    }
+
+    public function remove_item_for_user($user_id)
+    {
+        $user = $this->authenticated_user();
+        if ($user === null)
+        {
+            return;
+        }
+
+        if ( ! $this->require_method('POST'))
+        {
+            return;
+        }
+
+        $body = $this->json_body();
+        if ($body === null)
+        {
+            return;
+        }
+
+        $svc = new \Stripedesk\Services\Cart_api_service($this);
+        list($ok, $result) = $svc->remove_item_for_user_id($user, (int) $user_id, $body);
+        if (! $ok)
+        {
+            $msg = (string) $result;
+            if ($msg === 'forbidden')
+            {
+                $this->emit(\Stripedesk\Api\Api_error_response::create(403, 'forbidden', 'Cannot modify cart for this user'));
+                return;
+            }
+            if ($msg === 'no active cart')
+            {
+                $this->emit(\Stripedesk\Api\Api_error_response::create(404, 'not_found', 'No active cart for this user'));
+                return;
+            }
+            if ($msg === 'cart not found')
+            {
+                $this->emit(\Stripedesk\Api\Api_error_response::create(404, 'not_found', 'Cart not found'));
+                return;
+            }
+            if ($msg === 'cart line not found')
+            {
+                $this->emit(\Stripedesk\Api\Api_error_response::create(404, 'not_found', 'Cart line not found'));
+                return;
+            }
+            $this->emit(\Stripedesk\Api\Api_error_response::create(400, 'cart_item_remove_failed', $msg));
             return;
         }
 

@@ -204,6 +204,73 @@ final class Cart_api_service
         return array(true, new Cart_detail_dto($cart, $this->lines_for_cart($cart_id)));
     }
 
+    /**
+     * Remove a line by product_id. Body: product_id (required).
+     *
+     * @return array{0:bool,1:Cart_detail_dto|string}
+     */
+    public function remove_item_for_actor($user, $cart_id, array $payload)
+    {
+        $cart_id = (int) $cart_id;
+        $cart = $this->ci->cart_model->get_by_id_for_access($user, $cart_id);
+        if (! $cart)
+        {
+            return array(false, 'cart not found');
+        }
+        if ((string) $cart->status !== 'active')
+        {
+            return array(false, 'cart must be active to modify');
+        }
+        if ($cart->expires_at !== null && strtotime((string) $cart->expires_at) < time())
+        {
+            return array(false, 'cart expired');
+        }
+
+        $product_id = isset($payload['product_id']) ? (int) $payload['product_id'] : 0;
+        if ($product_id < 1)
+        {
+            return array(false, 'product_id is required');
+        }
+
+        if ( ! $this->ci->cart_item_model->delete_by_cart_and_product($cart_id, $product_id))
+        {
+            return array(false, 'cart line not found');
+        }
+
+        $this->ci->cart_model->recalculate_total_amount($cart_id, (int) $user->id);
+
+        $cart = $this->ci->cart_model->get_by_id_for_access($user, $cart_id);
+        if (! $cart)
+        {
+            return array(false, 'cart not found');
+        }
+
+        return array(true, new Cart_detail_dto($cart, $this->lines_for_cart($cart_id)));
+    }
+
+    /**
+     * @return array{0:bool,1:Cart_detail_dto|string}
+     */
+    public function remove_item_for_user_id($actor_user, $target_user_id, array $payload)
+    {
+        if (! $this->can_access_user_cart($actor_user, $target_user_id))
+        {
+            return array(false, 'forbidden');
+        }
+
+        $cart = $this->ci->cart_model->find_latest_active_cart_for_user((int) $target_user_id);
+        if (! $cart)
+        {
+            return array(false, 'no active cart');
+        }
+        if (! $this->ci->cart_model->get_by_id_for_access($actor_user, (int) $cart->id))
+        {
+            return array(false, 'cart not found');
+        }
+
+        return $this->remove_item_for_actor($actor_user, (int) $cart->id, $payload);
+    }
+
     public function detail_for_actor($user, $cart_id)
     {
         $cart = $this->ci->cart_model->get_by_id_for_access($user, (int) $cart_id);

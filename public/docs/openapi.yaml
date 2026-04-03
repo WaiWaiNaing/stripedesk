@@ -440,6 +440,13 @@ components:
           maximum: 25
           nullable: true
           example: 1
+    CartRemoveItemRequest:
+      type: object
+      required: [product_id]
+      properties:
+        product_id:
+          type: integer
+          example: 1
     CartLine:
       type: object
       required: [product_id, product_name, quantity, price, line_total]
@@ -1187,6 +1194,42 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/v1/users/{userId}/cart/items/remove:
+    post:
+      tags: [Checkout]
+      summary: Remove a product line from a user's cart (by user id)
+      description: >
+        Targets the user's latest active, non-expired cart (does not create a cart). Same access rules as other user-cart routes.
+      security:
+        - bearerAuth: []
+        - authCookie: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartRemoveItemRequest'
+      responses:
+        '200':
+          description: Updated cart detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartDetailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/v1/users/{userId}/cart/items:
     post:
       tags: [Checkout]
@@ -1210,6 +1253,41 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CartAddItemRequest'
+      responses:
+        '200':
+          description: Updated cart detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartDetailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/carts/{id}/items/remove:
+    post:
+      tags: [Checkout]
+      summary: Remove a product line from cart
+      description: Deletes the cart line for the given product_id and recalculates cart totals.
+      security:
+        - bearerAuth: []
+        - authCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartRemoveItemRequest'
       responses:
         '200':
           description: Updated cart detail

@@ -22,6 +22,7 @@ $route['api/v1/products'] = 'api/products/index';
 
 $route['api/v1/checkout/session'] = 'api/checkout/session';
 $route['api/v1/checkout/invoice'] = 'api/checkout/invoice';
+$route['api/v1/checkout/reconcile'] = 'api/checkout/reconcile';
 $route['api/v1/users/(:num)/cart/items/remove'] = 'api/carts/remove_item_for_user/$1';
 $route['api/v1/users/(:num)/cart/items'] = 'api/carts/add_item_for_user/$1';
 $route['api/v1/users/(:num)/cart'] = 'api/carts/show_for_user/$1';

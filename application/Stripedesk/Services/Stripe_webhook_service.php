@@ -47,71 +47,14 @@ final class Stripe_webhook_service
         if ($type === 'checkout.session.completed')
         {
             $session = $event->data->object;
-            $metadata = isset($session->metadata) ? $session->metadata : null;
-            $order_id = $metadata && isset($metadata->order_id) ? (int) $metadata->order_id : 0;
-            $cart_id = $metadata && isset($metadata->cart_id) ? (int) $metadata->cart_id : 0;
-            $meta_user_id = $metadata && isset($metadata->user_id) ? (int) $metadata->user_id : 0;
-            if ($order_id < 1)
+            $reason = Checkout_session_fulfillment_service::apply($this->ci, $session);
+            if ($reason === 'no_order_id')
             {
                 return array(true, 200, 'no_order_id');
             }
-
-            $order = $this->ci->order_model->find($order_id);
-            if ( ! $order)
+            if ($reason === 'order_not_found')
             {
                 return array(true, 200, 'order_not_found');
-            }
-
-            $this->ci->order_model->update_row($order_id, array(
-                'status' => 'paid',
-            ));
-
-            if ($cart_id > 0)
-            {
-                $cart = $this->ci->cart_model->find($cart_id);
-                if ($cart && ($meta_user_id < 1 || (int) $cart->user_id === (int) $meta_user_id))
-                {
-                    $this->ci->cart_model->update_row($cart_id, array(
-                        'status' => 'converted',
-                        'updated_by' => $meta_user_id > 0 ? (int) $meta_user_id : null,
-                    ));
-                }
-            }
-
-            $invoice = $this->ci->invoice_model->get_by_order_id($order_id);
-            if ( ! $invoice)
-            {
-                $invoice_number = 'INV-' . date('Y') . '-' . str_pad((string) $order_id, 5, '0', STR_PAD_LEFT);
-                $invoice_id = $this->ci->invoice_model->create(array(
-                    'order_id' => $order_id,
-                    'invoice_number' => $invoice_number,
-                    'total_amount' => (string) $order->total_amount,
-                    'status' => 'paid',
-                ));
-                $invoice = $invoice_id ? $this->ci->invoice_model->find($invoice_id) : null;
-            }
-            else
-            {
-                $this->ci->invoice_model->update_row((int) $invoice->id, array('status' => 'paid'));
-            }
-
-            if ($invoice)
-            {
-                $receipt = $this->ci->receipt_model->get_by_invoice_id((int) $invoice->id);
-                if ( ! $receipt)
-                {
-                    $receipt_number = 'RCP-' . date('Y') . '-' . str_pad((string) $invoice->id, 5, '0', STR_PAD_LEFT);
-                    $payment_intent = isset($session->payment_intent) ? (string) $session->payment_intent : null;
-                    $amount_total = isset($session->amount_total) ? ((int) $session->amount_total) : null;
-                    $amount_paid = $amount_total !== null ? number_format(((float) $amount_total) / 100, 2, '.', '') : (string) $order->total_amount;
-                    $this->ci->receipt_model->create(array(
-                        'invoice_id' => (int) $invoice->id,
-                        'receipt_number' => $receipt_number,
-                        'stripe_payment_intent' => $payment_intent,
-                        'amount_paid' => $amount_paid,
-                        'paid_at' => date('Y-m-d H:i:s'),
-                    ));
-                }
             }
         }
         elseif ($type === 'checkout.session.expired')
@@ -141,4 +84,3 @@ final class Stripe_webhook_service
         return array(true, 200, 'ok');
     }
 }
-

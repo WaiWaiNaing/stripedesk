@@ -88,5 +88,59 @@ class Checkout extends Api_base_controller
 
         $this->emit(\Stripedesk\Api\Api_success_response::with_data(array('invoice_id' => (int) $result), 201));
     }
+
+    /**
+     * POST /api/v1/checkout/reconcile
+     * After Stripe redirects to the app: confirm payment if webhook has not run yet.
+     */
+    public function reconcile()
+    {
+        $user = $this->authenticated_user();
+        if ($user === null)
+        {
+            return;
+        }
+        if ( ! $this->require_method('POST'))
+        {
+            return;
+        }
+        $body = $this->json_body();
+        if ($body === null)
+        {
+            return;
+        }
+        $session_id = isset($body['session_id']) ? trim((string) $body['session_id']) : '';
+        if ($session_id === '')
+        {
+            $this->emit(\Stripedesk\Api\Api_error_response::create(400, 'validation_error', 'session_id is required'));
+            return;
+        }
+
+        $svc = new \Stripedesk\Services\Checkout_reconcile_service($this);
+        list($ok, $result) = $svc->reconcile_session_for_user($user, $session_id);
+        if ( ! $ok)
+        {
+            $msg = (string) $result;
+            if ($msg === 'order_not_found')
+            {
+                $this->emit(\Stripedesk\Api\Api_error_response::create(404, 'not_found', 'No order for this checkout session'));
+                return;
+            }
+            if ($msg === 'forbidden')
+            {
+                $this->emit(\Stripedesk\Api\Api_error_response::create(403, 'forbidden', 'This checkout does not belong to your account'));
+                return;
+            }
+            if ($msg === 'stripe_not_configured')
+            {
+                $this->emit(\Stripedesk\Api\Api_error_response::create(503, 'stripe_unavailable', 'Payment verification is temporarily unavailable'));
+                return;
+            }
+            $this->emit(\Stripedesk\Api\Api_error_response::create(400, 'reconcile_failed', $msg));
+            return;
+        }
+
+        $this->emit(\Stripedesk\Api\Api_success_response::with_data($result));
+    }
 }
 

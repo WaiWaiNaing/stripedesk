@@ -29,6 +29,22 @@ class Order_model extends MY_Model
         return $this->db->get_where($this->table, array('stripe_session_id' => $session_id))->row();
     }
 
+    /**
+     * Pending orders that started Stripe Checkout (for cron reconciliation).
+     *
+     * @param int $limit
+     * @return array
+     */
+    public function list_pending_with_stripe_session($limit = 300)
+    {
+        $this->db->where('status', 'pending');
+        $this->db->where('stripe_session_id IS NOT NULL', null, false);
+        $this->db->where('stripe_session_id !=', '');
+        $this->db->order_by('id', 'ASC');
+        $this->db->limit((int) $limit);
+        return $this->db->get($this->table)->result();
+    }
+
     public function get_with_items($order_id)
     {
         $order = $this->find($order_id);

@@ -119,7 +119,24 @@ class Auth extends Api_base_controller
         list($ok, $result) = $svc->forgot_password($body);
         if ( ! $ok)
         {
-            $this->emit(\Stripedesk\Api\Api_error_response::create(403, 'forbidden', (string) $result));
+            $msg = (string) $result;
+            $status = 400;
+            $code = 'forgot_failed';
+            if ($msg === 'this action is not available for administrator accounts')
+            {
+                $status = 403;
+                $code = 'forbidden';
+            }
+            elseif ($msg === 'user not found')
+            {
+                $status = 404;
+                $code = 'user_not_found';
+            }
+            elseif ($msg === 'email is required')
+            {
+                $code = 'validation_error';
+            }
+            $this->emit(\Stripedesk\Api\Api_error_response::create($status, $code, $msg));
             return;
         }
         $this->emit(\Stripedesk\Api\Api_success_response::with_data($result));

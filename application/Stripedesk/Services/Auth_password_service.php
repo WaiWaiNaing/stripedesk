@@ -100,7 +100,7 @@ final class Auth_password_service
         $email = isset($payload['email']) ? trim((string) $payload['email']) : '';
         if ($email === '')
         {
-            return array(true, array('status' => 'ok'));
+            return array(false, 'email is required');
         }
 
         $user = $this->ci->user_model->get_by_email($email);
@@ -110,7 +110,7 @@ final class Auth_password_service
         }
         if ( ! $user)
         {
-            return array(true, array('status' => 'ok'));
+            return array(false, 'user not found');
         }
 
         $dev_otp = $this->issue_password_reset_otp_row($email);
@@ -151,7 +151,7 @@ final class Auth_password_service
             }
             if ( ! $user)
             {
-                return array(true, array('status' => 'ok'));
+                return array(false, 'user not found');
             }
 
             $dev_otp = $this->issue_password_reset_otp_row($email);

@@ -38,6 +38,7 @@ final class Admin_user_service
         $id = $this->ci->user_model->create(array(
             'name' => $name,
             'email' => $email,
+            'email_verified_at' => date('Y-m-d H:i:s'),
             'password' => $hash,
             'role' => 'admin',
             'created_by' => (int) $admin_user_id,
@@ -49,37 +50,20 @@ final class Admin_user_service
             return array(false, 'failed to create user');
         }
 
-        $auth_pw = new Auth_password_service($this->ci);
-        list($ok, $otp_meta) = $auth_pw->issue_email_verification_otp((int) $id, $email, 'account_activation');
-        if ( ! $ok)
-        {
-            $this->ci->user_model->soft_deactivate((int) $id);
-
-            return array(false, (string) $otp_meta);
-        }
-
         $user = $this->ci->user_model->find($id);
         if ( ! $user)
         {
             return array(false, 'failed to load new user');
         }
-        $data = array(
+
+        return array(true, array(
             'id' => (int) $user->id,
             'name' => (string) $user->name,
             'email' => (string) $user->email,
             'role' => (string) $user->role,
             'created_at' => (string) $user->created_at,
-            'requires_verification' => true,
-        );
-        if (is_array($otp_meta))
-        {
-            if (isset($otp_meta['otp']))
-            {
-                $data['otp'] = $otp_meta['otp'];
-            }
-        }
-
-        return array(true, $data);
+            'requires_verification' => false,
+        ));
     }
     public function soft_delete_user($target_id, $admin_user_id)
     {

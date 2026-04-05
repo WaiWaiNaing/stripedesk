@@ -18,7 +18,7 @@
 8. [API documentation](#api-documentation)
 9. [Security & Task Restriction Design](#security--task-restriction-design)
 10. [Mobile API Considerations](#mobile-api-considerations)
-11. [Staging vs Production Deployment](#staging-vs-production-deployment)
+11. [Deployment](#deployment)
 12. [Additional Tools & Libraries](#additional-tools--libraries)
 13. [Email (SMTP for OTP)](#email-smtp-for-otp)
 14. [Project Structure](#project-structure)
@@ -459,84 +459,49 @@ For a native mobile payment experience, replace the Stripe Checkout redirect wit
 
 ---
 
-## Staging vs Production Deployment
+## Deployment
+
+The backend is one **Docker image** (`web`: Apache + PHP 7.3 + CodeIgniter). Behaviour is the same locally and on a server; **`.env`** and **Stripe keys** (test vs live) distinguish environments.
 
 ### Environment strategy
 
-StripeDesk uses the same Docker images across all environments. The only difference is the `.env` file and which Stripe key set is active (test vs live).
+| Setting       | Local dev                     | Staging (example)            | Production (example)        |
+|---------------|-------------------------------|------------------------------|-----------------------------|
+| `CI_ENV`      | `development`                 | `testing`                    | `production`                |
+| Stripe keys   | `sk_test_...`                 | `sk_test_...`                | `sk_live_...`               |
+| API URL       | `http://localhost:8081`     | HTTPS on your domain         | HTTPS on your domain        |
+| SMTP          | Optional MailHog / Mailtrap   | Mailtrap or similar          | SendGrid / Postmark / etc.  |
+| Database      | MySQL in **`docker-compose.yml`** (`db`) | MySQL on VPS + **`DB_HOST`** in `.env` | Same pattern                |
+| Compose       | **`docker-compose.yml`**      | **`docker-compose.ghcr.yml`** | **`docker-compose.ghcr.yml`** |
 
-| Setting           | Local dev               | Staging                         | Production                  |
-|-------------------|-------------------------|---------------------------------|-----------------------------|
-| `CI_ENV`          | `development`           | `testing`                       | `production`                |
-| Stripe keys       | `sk_test_...`           | `sk_test_...`                   | `sk_live_...`               |
-| `APP_URL`         | `http://localhost:8081` | `https://staging.yourdomain.com`| `https://yourdomain.com`    |
-| SMTP              | MailHog (local)         | Mailtrap sandbox                | SendGrid / SES (live)       |
-| Database          | Docker MySQL (`db` in compose) | Managed MySQL (e.g. RDS) or host MySQL + `DB_HOST` | Same                        |
-| Error display     | ON                      | OFF                             | OFF                         |
+### What this repository implements
 
-**How this repo ships Docker**
+- **`Dockerfile`** — multi-stage: Composer builds `vendor`; runtime is `php:7.3-apache` with the app at `/var/www/html`.
+- **`docker-compose.yml`** — **`web`** + **`db`**: image built from source, bind mount for dev, MySQL 8 with a persistent volume.
+- **`docker-compose.ghcr.yml`** — **`web` only**; image from **`STRIPEDESK_IMAGE`** (default `ghcr.io/<owner>/<repo>/backend:latest`). No `db` service — MySQL runs elsewhere; **`DB_HOST`** / **`DB_PORT`** in `.env` reach it (often the host gateway from the container when MySQL is on the same VPS).
+- **`.github/workflows/push-ghcr.yml`** — build and push the **`web`** image to **GHCR** on push to **`main`** or **`v*`** tags.
+- **`.github/workflows/deploy-ssh.yml`** (optional) — SCP **`docker-compose.ghcr.yml`** to a server and **`docker compose pull`** / **`up`** (see workflow comments for secrets).
 
-- **`docker-compose.yml`**: local dev — build `web`, run `web` + `db`, bind-mount source.
-- **`docker-compose.ghcr.yml`**: server — pull **`STRIPEDESK_IMAGE`** (no `db` service); point **`DB_HOST`** at external MySQL.
-- **`.github/workflows/push-ghcr.yml`**: on push to `main` / `v*` tags, build and push **`ghcr.io/<github.repository>/backend`** (see workflow for tag list).
-- **`.github/workflows/deploy-ssh.yml`** (optional): after a successful GHCR build, SCP `docker-compose.ghcr.yml` to a VPS and run `docker compose pull` / `up` (configure Action secrets as documented in that file).
+### Runtime layout (as deployed)
 
-On a GHCR-based server, run migrations inside the running container, for example:
-
-```bash
-docker compose -f docker-compose.ghcr.yml exec web php /var/www/html/public/index.php migrate
-```
-
----
-
-### Recommended AWS cloud architecture *(optional reference)*
-
-The **`web` image** is Apache + PHP 7.3 (same as local). You can run it on a single VM with **`docker-compose.ghcr.yml`**, or scale out on AWS (below) using the same image from GHCR or a mirror in ECR.
+The **`web` image** is Apache + PHP 7.3 (same as local). In production it runs on a **VPS** via **`docker-compose.ghcr.yml`**: the container serves HTTP on a mapped port; **TLS and DNS** are handled by the host (e.g. reverse proxy or provider-managed HTTPS). **MySQL** runs on the same machine or another reachable host; **`DB_HOST`** in `.env` points the app container at it.
 
 ```
-                        ┌─────────────────────┐
-                        │    Route 53 (DNS)   │
-                        └──────────┬──────────┘
-                                   │
-                        ┌──────────▼──────────┐
-                        │  ACM (TLS cert)     │
-                        └──────────┬──────────┘
-                                   │ HTTPS 443
-                        ┌──────────▼──────────┐
-                        │  Application Load   │
-                        │  Balancer (ALB)     │
-                        └────────┬─────┬──────┘
-                                 │     │
-               ┌─────────────────▼─┐ ┌─▼─────────────────┐
-               │  ECS Fargate Task │ │ ECS Fargate Task   │
-               │  (Apache + PHP)   │ │ (Apache + PHP)     │
-               │  AZ ap-southeast-1a│ │ AZ ap-southeast-1b│
-               └─────────────────┬─┘ └─┬─────────────────┘
-                                 │     │
-               ┌─────────────────▼─────▼─────────────────┐
-               │         Amazon RDS MySQL 8               │
-               │  Staging: db.t3.micro, Single-AZ         │
-               │  Production: db.t3.small, Multi-AZ       │
-               └──────────────────────────────────────────┘
-
-Supporting services:
-  GHCR / ECR      → Container registry (this repo: GHCR via Actions; mirror to ECR for ECS if needed)
-  S3              → Static assets, future PDF invoice storage
-  SES / SendGrid  → Transactional email (receipts)
-  CloudWatch      → Logs, metrics, alarms
-  Secrets Manager → Stripe keys, DB passwords, JWT secret
+  Clients / SPA  ──HTTPS──►  VPS (TLS + routing — outside this repo)
+                                    │
+                                    ▼
+                         Docker: stripedesk-web (Apache + PHP)
+                                    │
+                                    ▼
+                         MySQL (host install or separate process)
 ```
 
----
+### CI/CD and release steps
 
-### Deployment strategy
+- **`push-ghcr.yml`** builds the **`web`** image and pushes to **GHCR** (`ghcr.io/<owner>/<repo>/backend`, tags from `metadata-action`).
+- Optional **`deploy-ssh.yml`** uploads **`docker-compose.ghcr.yml`** and runs **`docker compose pull`** / **`up -d web`** on the VPS after a successful build on **`main`**.
 
-**This repository (implemented in GitHub Actions):**
-
-- Push to **`main`** or a **`v*`** tag triggers **`push-ghcr.yml`**, which builds the **`web`** image and pushes it to **GHCR** (`ghcr.io/<owner>/<repo>/backend`, multiple tags per `metadata-action` rules).
-- Optionally enable **`deploy-ssh.yml`**: after a successful GHCR build on `main`, it can upload **`docker-compose.ghcr.yml`** to your server and run **`docker compose pull`** / **`up -d web`** (see workflow comments for required secrets).
-
-**Before serving traffic**, run DB migrations in the running **`web`** container (compose file must match how the container was started):
+**Migrations** (run after deploy, using the same compose file you used to start `web`):
 
 ```bash
 # Local dev (default compose)
@@ -546,26 +511,12 @@ docker compose exec web php /var/www/html/public/index.php migrate
 docker compose -f docker-compose.ghcr.yml exec web php /var/www/html/public/index.php migrate
 ```
 
-**Optional AWS pattern (not defined in this repo’s workflows):** mirror the GHCR image to **ECR**, run **ECS Fargate** tasks behind an **ALB**, use **CodeDeploy** blue/green if desired, and run migrations as a one-off ECS task before shifting traffic.
+**Rolling out a new image** on the server:
 
----
-
-### Estimated monthly AWS cost (ap-southeast-1 region)
-
-| Service                        | Spec                        | Est. Cost (USD/mo) |
-|-------------------------------|-----------------------------|--------------------|
-| ECS Fargate (2 tasks)         | 0.5 vCPU, 1 GB RAM each     | ~$15               |
-| RDS MySQL db.t3.micro         | Single-AZ — staging         | ~$15               |
-| RDS MySQL db.t3.small         | Multi-AZ — production       | ~$60               |
-| Application Load Balancer     | 1 ALB                       | ~$20               |
-| GHCR / ECR (registry)         | modest image storage        | ~$0–1              |
-| SES                           | 10,000 emails/mo            | ~$1                |
-| CloudWatch Logs               | 5 GB/mo                     | ~$2.50             |
-| Route 53                      | 1 hosted zone               | ~$0.50             |
-| **Total — staging only**      |                             | **~$55/mo**        |
-| **Total — staging + prod**    |                             | **~$115/mo**       |
-
-> Costs reduce significantly with Fargate Savings Plans (up to 50% off compute) and RDS Reserved Instances (up to 40% off).
+```bash
+docker compose -f docker-compose.ghcr.yml pull web
+docker compose -f docker-compose.ghcr.yml up -d web
+```
 
 ---
 
@@ -593,8 +544,8 @@ docker compose -f docker-compose.ghcr.yml exec web php /var/www/html/public/inde
 | **Sentry**             | Real-time error tracking and performance monitoring              |
 | **PHPUnit**            | Unit and integration tests for models, libraries, and webhooks   |
 | **GitHub Actions**     | CI: build & push **`web`** image to **GHCR** (`push-ghcr.yml`); optional SSH deploy (`deploy-ssh.yml`) |
-| **AWS Secrets Manager**| Secure storage of Stripe keys, JWT secret, and DB credentials    |
-| **Datadog / CloudWatch**| APM, log aggregation, uptime alarms                             |
+| **Env / secrets**      | Production secrets in `.env` on the server (or your provider’s secret store) — never commit |
+| **Log / APM tools**    | Optional: hosted error tracking or log shipping (e.g. Sentry, provider logs) |
 
 ---
 

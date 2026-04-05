@@ -143,22 +143,35 @@ APP_URL=http://localhost:8081
 docker compose up -d --build
 ```
 
-This starts **Apache + PHP** and **MySQL** (see `docker-compose.yml`):
+**`docker-compose.yml`** runs two services:
 
-| Service / container | Purpose | Port(s) |
-|---------------------|---------|---------|
-| `web` / `stripedesk-web` | Apache, PHP 7.3, CodeIgniter (`public/` as docroot) | `8081` host → `80` (override with `WEB_PORT` in `.env`) |
-| `db` / `stripedesk-db` | MySQL 8 | `3306` (override with `DB_PORT` in `.env`) |
+| Compose service | Container name | Image / build | Purpose |
+|-----------------|----------------|---------------|---------|
+| `web` | `stripedesk-web` | **Build** from `./Dockerfile` | Apache + PHP 7.3; document root `public/` via `APACHE_DOCUMENT_ROOT=/var/www/html/public`; bind-mount **`.` → `/var/www/html`**; **`depends_on: db`** (waits for DB healthcheck). |
+| `db` | `stripedesk-db` | `mysql:8.0` | MySQL with volume **`stripedesk_mysql_data`** for data. |
 
-Default database credentials match Docker Compose env defaults (`MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`, typically `stripedesk` / `stripedesk` / `stripedesk`). Override them in `.env` if you change the compose file.
+**Ports:** `${WEB_PORT:-8081}:80` on `web`, `${DB_PORT:-3306}:3306` on `db` (override in `.env`).
+
+Default DB user/password/database match Compose env (`MYSQL_*`, typically `stripedesk` / `stripedesk` / `stripedesk`).
+
+**Server image (no local build, no `db` in compose):** use **`docker-compose.ghcr.yml`**. It runs **`web` only**, pulling **`STRIPEDESK_IMAGE`** (default `ghcr.io/waiwainaing/stripedesk/backend:latest`). Set **`DB_HOST`** (and DB credentials) in `.env` for MySQL outside Docker. Example:
+
+```bash
+docker compose -f docker-compose.ghcr.yml pull web
+docker compose -f docker-compose.ghcr.yml up -d web
+```
 
 ---
 
 ### Step 3 — Install PHP dependencies
 
+The **`web` image** is `php:7.3-apache` and does **not** include the **`composer`** binary. Because **`docker-compose.yml` bind-mounts the repo**, install dependencies into **`./vendor` on the host** using the official Composer image (from the project root):
+
 ```bash
-docker compose exec web composer install
+docker run --rm -v "$(pwd)":/app -w /app composer:2 install --no-interaction
 ```
+
+(Alternatively, run `composer install` on the host if Composer and PHP are installed locally.)
 
 ---
 
@@ -458,12 +471,27 @@ StripeDesk uses the same Docker images across all environments. The only differe
 | Stripe keys       | `sk_test_...`           | `sk_test_...`                   | `sk_live_...`               |
 | `APP_URL`         | `http://localhost:8081` | `https://staging.yourdomain.com`| `https://yourdomain.com`    |
 | SMTP              | MailHog (local)         | Mailtrap sandbox                | SendGrid / SES (live)       |
-| Database          | Docker MySQL            | RDS db.t3.micro                 | RDS db.t3.small (Multi-AZ)  |
+| Database          | Docker MySQL (`db` in compose) | Managed MySQL (e.g. RDS) or host MySQL + `DB_HOST` | Same                        |
 | Error display     | ON                      | OFF                             | OFF                         |
+
+**How this repo ships Docker**
+
+- **`docker-compose.yml`**: local dev — build `web`, run `web` + `db`, bind-mount source.
+- **`docker-compose.ghcr.yml`**: server — pull **`STRIPEDESK_IMAGE`** (no `db` service); point **`DB_HOST`** at external MySQL.
+- **`.github/workflows/push-ghcr.yml`**: on push to `main` / `v*` tags, build and push **`ghcr.io/<github.repository>/backend`** (see workflow for tag list).
+- **`.github/workflows/deploy-ssh.yml`** (optional): after a successful GHCR build, SCP `docker-compose.ghcr.yml` to a VPS and run `docker compose pull` / `up` (configure Action secrets as documented in that file).
+
+On a GHCR-based server, run migrations inside the running container, for example:
+
+```bash
+docker compose -f docker-compose.ghcr.yml exec web php /var/www/html/public/index.php migrate
+```
 
 ---
 
-### Recommended AWS cloud architecture
+### Recommended AWS cloud architecture *(optional reference)*
+
+The **`web` image** is Apache + PHP 7.3 (same as local). You can run it on a single VM with **`docker-compose.ghcr.yml`**, or scale out on AWS (below) using the same image from GHCR or a mirror in ECR.
 
 ```
                         ┌─────────────────────┐
@@ -481,7 +509,7 @@ StripeDesk uses the same Docker images across all environments. The only differe
                                  │     │
                ┌─────────────────▼─┐ ┌─▼─────────────────┐
                │  ECS Fargate Task │ │ ECS Fargate Task   │
-               │  (Nginx + PHP)    │ │ (Nginx + PHP)      │
+               │  (Apache + PHP)   │ │ (Apache + PHP)     │
                │  AZ ap-southeast-1a│ │ AZ ap-southeast-1b│
                └─────────────────┬─┘ └─┬─────────────────┘
                                  │     │
@@ -492,7 +520,7 @@ StripeDesk uses the same Docker images across all environments. The only differe
                └──────────────────────────────────────────┘
 
 Supporting services:
-  ECR             → Docker image registry (tagged by git SHA)
+  GHCR / ECR      → Container registry (this repo: GHCR via Actions; mirror to ECR for ECS if needed)
   S3              → Static assets, future PDF invoice storage
   SES / SendGrid  → Transactional email (receipts)
   CloudWatch      → Logs, metrics, alarms
@@ -503,27 +531,22 @@ Supporting services:
 
 ### Deployment strategy
 
-**Staging (automatic on push to `develop`):**
-```
-git push origin develop
-  → GitHub Actions: build Docker image
-  → push to ECR with tag :staging-<sha>
-  → ECS update-service (rolling deploy)
-  → smoke tests (curl health check)
+**This repository (implemented in GitHub Actions):**
+
+- Push to **`main`** or a **`v*`** tag triggers **`push-ghcr.yml`**, which builds the **`web`** image and pushes it to **GHCR** (`ghcr.io/<owner>/<repo>/backend`, multiple tags per `metadata-action` rules).
+- Optionally enable **`deploy-ssh.yml`**: after a successful GHCR build on `main`, it can upload **`docker-compose.ghcr.yml`** to your server and run **`docker compose pull`** / **`up -d web`** (see workflow comments for required secrets).
+
+**Before serving traffic**, run DB migrations in the running **`web`** container (compose file must match how the container was started):
+
+```bash
+# Local dev (default compose)
+docker compose exec web php /var/www/html/public/index.php migrate
+
+# Server (GHCR compose)
+docker compose -f docker-compose.ghcr.yml exec web php /var/www/html/public/index.php migrate
 ```
 
-**Production (manual approval on `main`):**
-```
-PR merged to main
-  → GitHub Actions: build Docker image
-  → push to ECR with tag :latest + :<sha>
-  → Manual approval gate in GitHub Actions
-  → ECS blue/green deploy via CodeDeploy
-  → ALB shifts traffic: 10% → 50% → 100% over 10 min
-  → Old task set drained and terminated
-```
-
-Database migrations run as a one-off ECS task before each traffic shift, ensuring schema is updated before new code handles requests.
+**Optional AWS pattern (not defined in this repo’s workflows):** mirror the GHCR image to **ECR**, run **ECS Fargate** tasks behind an **ALB**, use **CodeDeploy** blue/green if desired, and run migrations as a one-off ECS task before shifting traffic.
 
 ---
 
@@ -535,7 +558,7 @@ Database migrations run as a one-off ECS task before each traffic shift, ensurin
 | RDS MySQL db.t3.micro         | Single-AZ — staging         | ~$15               |
 | RDS MySQL db.t3.small         | Multi-AZ — production       | ~$60               |
 | Application Load Balancer     | 1 ALB                       | ~$20               |
-| ECR                           | 5 GB image storage          | ~$0.50             |
+| GHCR / ECR (registry)         | modest image storage        | ~$0–1              |
 | SES                           | 10,000 emails/mo            | ~$1                |
 | CloudWatch Logs               | 5 GB/mo                     | ~$2.50             |
 | Route 53                      | 1 hosted zone               | ~$0.50             |
@@ -569,7 +592,7 @@ Database migrations run as a one-off ECS task before each traffic shift, ensurin
 | **Redis**              | Session storage (replace DB sessions), API rate limiting         |
 | **Sentry**             | Real-time error tracking and performance monitoring              |
 | **PHPUnit**            | Unit and integration tests for models, libraries, and webhooks   |
-| **GitHub Actions**     | CI/CD: test → build → push ECR → deploy ECS                     |
+| **GitHub Actions**     | CI: build & push **`web`** image to **GHCR** (`push-ghcr.yml`); optional SSH deploy (`deploy-ssh.yml`) |
 | **AWS Secrets Manager**| Secure storage of Stripe keys, JWT secret, and DB credentials    |
 | **Datadog / CloudWatch**| APM, log aggregation, uptime alarms                             |
 
@@ -704,11 +727,15 @@ docker compose logs -f web
 # Access MySQL shell (defaults: user/db stripedesk — match your .env)
 docker compose exec db mysql -u stripedesk -pstripedesk stripedesk
 
-# Install / update Composer dependencies
-docker compose exec web composer install
+# Install / update Composer dependencies (web image has no composer binary)
+docker run --rm -v "$(pwd)":/app -w /app composer:2 install --no-interaction
 
-# Run migrations (schema)
+# Run migrations (schema) — default local compose
 docker compose exec web php /var/www/html/public/index.php migrate
+
+# GHCR server stack (no db service in compose — use external MySQL + DB_HOST)
+docker compose -f docker-compose.ghcr.yml pull web && docker compose -f docker-compose.ghcr.yml up -d web
+docker compose -f docker-compose.ghcr.yml exec web php /var/www/html/public/index.php migrate
 
 # Seed data (after migrations)
 docker compose exec -i db mysql -u stripedesk -pstripedesk stripedesk < database/seeds.sql
@@ -746,7 +773,7 @@ The following roadmap items respond directly to the [Known Limitations](#known-l
 | 7 | Security | Harden browser session and cookie settings for any HTML flows | Session hijacking mitigations are listed as recommendations, not defaults everywhere | Enable `sess_match_ip` where appropriate; enforce HTTPS, `HttpOnly`, and `SameSite` on session and auth cookies in production |
 | 8 | Features | Rely on production transactional email only; never return OTPs in API JSON | OTP-over-JSON exists only for dev when SMTP is blocked ([OTP verification & SMTP](#otp-verification--smtp-production-note)) | Configure `MAIL_*` with a transactional provider; keep `OTP_DEV_RETURN_CODE=false`; monitor delivery |
 | 9 | Operations | Automate OpenAPI accuracy checks in CI | File-driven spec can drift from code (Limitations of CodeIgniter 3 table) | Add a pipeline step that validates `public/docs/openapi.yaml` or diff-tests sample responses against the spec |
-| 10 | Database / Schema | Add and maintain indexes aligned with paginated, scoped list queries | Pagination without supporting indexes shifts cost to the database as volumes grow | Analyze `WHERE`/`ORDER BY` for invoices, orders, receipts, admin lists; add composite indexes (e.g. ownership + `id DESC`) |
+| 10 | Database / Schema | Add and maintain indexes aligned with paginated, scoped list queries | Pagination without supporting indexes shifts cost to the database as row counts grow | Analyze `WHERE`/`ORDER BY` for invoices, orders, receipts, admin lists; add composite indexes (e.g. ownership + `id DESC`) |
 | 11 | Features | Optional post-payment HTML receipt email | README notes there is no HTML receipt email after payment—only API/PDF ([Stripe Test Mode Walkthrough](#stripe-test-mode-walkthrough)) | After successful fulfillment, enqueue templated email using existing `MAIL_*` configuration |
 | 12 | Operations | Right-size PHP-FPM pools and horizontal capacity | Synchronous FPM is a concurrency bottleneck under spike traffic | Tune `pm.max_children` and related settings; add app servers behind a load balancer with shared session or stateless JWT |
 | 13 | Features | Server-side hook to trigger push notifications after payment | Mobile section recommends push instead of polling for payment confirmation | After `checkout.session.completed` handling, invoke an adapter (FCM/APNs) with user device tokens stored out of band |

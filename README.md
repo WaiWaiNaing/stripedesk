@@ -33,9 +33,9 @@
 | Layer        | Technology                                   |
 |--------------|----------------------------------------------|
 | Framework    | CodeIgniter 3.1.13                           |
-| Language     | PHP 7.3 (FPM)                                |
+| Language     | PHP 7.3 (mod_php via Apache)                 |
 | Database     | MySQL 8.0                                    |
-| Web Server   | Nginx 1.25 (Alpine)                          |
+| Web Server   | Apache 2.4 (`php:7.3-apache`)                |
 | Payments     | Stripe PHP SDK ^7.128 (Checkout + Webhooks)  |
 | Auth (API)   | Firebase JWT (HS256) + httpOnly auth cookies |
 | PDF receipts | Dompdf ^2.x (HTML → PDF)                       |
@@ -74,7 +74,7 @@ Stripe Checkout completion can be observed through **webhooks**, the **browser r
 | **Cron reconciliation** | CLI: `php public/index.php cron stripe_reconcile [token]` — polls Stripe for pending orders with a Checkout session (e.g. every **15 minutes** in production). Covers **server down** during the webhook window. |
 | **Stripe retries** | Stripe retries webhooks for an extended period (on the order of **days**); combined with cron + client reconcile, **short outages** recover without manual DB fixes. |
 
-Implementation entry points: `application/Stripedesk/Services/Checkout_session_fulfillment_service.php`, `Stripe_webhook_service.php`, `Checkout_reconcile_service.php`, `application/controllers/Cron.php`.
+Implementation entry points: `application/controllers/Webhook.php` (`_fulfill_order`), `application/Stripedesk/Services/Checkout_session_fulfillment_service.php` (delegates to `Webhook`), `Stripe_webhook_service.php`, `Checkout_reconcile_service.php`, `application/controllers/Cron.php`.
 
 ---
 
@@ -143,12 +143,11 @@ APP_URL=http://localhost:8081
 docker compose up -d --build
 ```
 
-This starts **nginx**, **php-fpm**, and **MySQL** (see `docker-compose.yml`):
+This starts **Apache + PHP** and **MySQL** (see `docker-compose.yml`):
 
 | Service / container | Purpose | Port(s) |
 |---------------------|---------|---------|
-| `nginx` / `stripedesk-nginx` | Reverse proxy → PHP | `8081` host → `80` (override with `WEB_PORT` in `.env`) |
-| `php` / `stripedesk-php` | PHP-FPM + CodeIgniter | internal only |
+| `web` / `stripedesk-web` | Apache, PHP 7.3, CodeIgniter (`public/` as docroot) | `8081` host → `80` (override with `WEB_PORT` in `.env`) |
 | `db` / `stripedesk-db` | MySQL 8 | `3306` (override with `DB_PORT` in `.env`) |
 
 Default database credentials match Docker Compose env defaults (`MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`, typically `stripedesk` / `stripedesk` / `stripedesk`). Override them in `.env` if you change the compose file.
@@ -158,7 +157,7 @@ Default database credentials match Docker Compose env defaults (`MYSQL_USER`, `M
 ### Step 3 — Install PHP dependencies
 
 ```bash
-docker compose exec php composer install
+docker compose exec web composer install
 ```
 
 ---
@@ -170,7 +169,7 @@ Schema is defined in **`application/migrations/`** (and mirrored in `application
 With CodeIgniter 3 wired and `public/index.php` as the front controller:
 
 ```bash
-docker compose exec php php /var/www/html/public/index.php migrate
+docker compose exec web php /var/www/html/public/index.php migrate
 ```
 
 That runs all pending migrations up to `application/config/migration.php` → `migration_version`.
@@ -257,10 +256,10 @@ STRIPE_WEBHOOK_SECRET=whsec_REPLACE_WITH_YOUR_SECRET
 APP_URL=https://YOUR-NGROK-SUBDOMAIN.ngrok-free.app
 ```
 
-Restart PHP (and nginx if you changed proxy-related config) to pick up new env vars:
+Restart the app container to pick up new env vars:
 
 ```bash
-docker compose restart php nginx
+docker compose restart web
 ```
 
 ---
@@ -319,8 +318,10 @@ After a test purchase, check the Stripe dashboard:
 Check StripeDesk application logs:
 
 ```bash
-docker compose exec php tail -f /var/log/php_errors.log
+docker compose logs -f web
 ```
+
+(Apache/PHP log configuration may also write to paths inside the container; `docker compose logs` streams the service stdout/stderr.)
 
 ---
 
@@ -557,7 +558,7 @@ Database migrations run as a one-off ECS task before each traffic shift, ensurin
 | **Ngrok v3**                | Secure HTTPS tunnel for Stripe webhook testing locally        |
 | **Docker + Compose v2**     | Full environment containerisation and service orchestration   |
 | **MySQL 8**                 | JSON column type used for `stripe_logs.payload`               |
-| **Nginx 1.25 (Alpine)**     | Lightweight web server proxying to PHP-FPM                    |
+| **Apache 2.4**              | Web server + mod_php in the `web` Docker image                |
 | **Composer**                | PHP dependency management                                     |
 | **Postman**                 | API development and exportable collection for team sharing    |
 
@@ -612,21 +613,25 @@ MAIL_FROM_NAME=StripeDesk
 
 ## Project Structure
 
-High level: **REST API + JSON** (no server-rendered admin/shop). The Vue SPA lives in **StripeDesk_FrontEnd**.
+High level: **REST API + JSON** (no server-rendered admin/shop). The Vue SPA lives in **StripeDesk_FrontEnd**. Local dev uses **`docker-compose.yml`**: services **`web`** (Apache + PHP + app) and **`db`** (MySQL). **`docker-compose.ghcr.yml`** pulls a pre-built **`web`** image from GHCR for server deploys (see `.github/workflows/`).
 
 ```
 stripedesk/
-├── Dockerfile                    # PHP-FPM app image (Composer deps)
-├── docker-compose.yml            # nginx + php + db
-├── nginx/
-│   ├── Dockerfile
-│   ├── nginx.conf
-│   └── sites/stripedesk.conf     # try_files → public/index.php
+├── Dockerfile                    # multi-stage: composer vendor + php:7.3-apache app image
+├── docker-compose.yml            # web + db (dev / full stack)
+├── docker-compose.ghcr.yml       # production-style: pull web image from registry
+├── .github/
+│   └── workflows/
+│       ├── push-ghcr.yml         # build & push backend image
+│       └── deploy-ssh.yml        # optional SSH deploy
+├── docs/
+│   └── er-diagram.md             # Mermaid ER diagram (schema reference)
 ├── application/
 │   ├── config/                   # config, database, routes, jwt, stripe, env, migration, autoload
 │   ├── controllers/
 │   │   ├── Migrate.php           # migrations (prefer CLI in prod)
 │   │   ├── Cron.php              # e.g. stripe_reconcile
+│   │   ├── Webhook.php           # Stripe fulfillment: _fulfill_order() (loaded by services)
 │   │   ├── Welcome.php
 │   │   └── api/
 │   │       ├── Auth.php
@@ -645,33 +650,39 @@ stripedesk/
 │   │   ├── MY_Controller.php
 │   │   ├── MY_Model.php
 │   │   └── Api_base_controller.php
-│   ├── migrations/               # canonical schema (+ schema.sql mirror)
-│   ├── models/                   # User, Product, Order, Invoice, Receipt, Cart, OTP, …
+│   ├── migrations/               # 001_… sequential + schema.sql mirror
+│   ├── models/                   # User, Product, Order, Invoice, Receipt, Cart, Stripe_log, …
 │   ├── libraries/
 │   │   └── Jwt_auth.php
-│   ├── Stripedesk/               # namespaced app layer
-│   │   ├── Services/             # checkout, webhook, fulfillment, receipt PDF, auth, …
+│   ├── Stripedesk/               # PSR-4-style app layer (composer autoload)
+│   │   ├── Services/             # checkout, webhook, fulfillment, receipt PDF, auth, reconcile, …
 │   │   ├── Dto/
 │   │   ├── Contracts/            # e.g. Pdf_renderer_interface
-│   │   ├── Mail/Otp_mailer.php
-│   │   ├── Api/                  # standardized JSON responses
+│   │   ├── Mail/
+│   │   │   └── Otp_mailer.php
+│   │   ├── Api/                  # JSON response helpers
 │   │   ├── Support/
 │   │   └── Validation/
 │   └── views/
-│       └── errors/               # CI error templates only
+│       └── errors/               # CI error templates (html/cli)
 ├── database/
 │   └── seeds.sql
 ├── postman/
 │   └── StripeDesk.postman_collection.json
 ├── public/
-│   ├── index.php                 # front controller + .env load
-│   └── docs/
-│       └── openapi.yaml          # Swagger UI source
+│   ├── index.php                 # front controller
+│   ├── bootstrap_env.php       # env bootstrap
+│   └── docs/                     # Swagger UI + OpenAPI
+│       ├── index.html
+│       └── openapi.yaml
+├── vendor/                       # Composer dependencies (from image or composer install)
 ├── composer.json
 ├── composer.lock
 ├── .env.example
 └── README.md
 ```
+
+Optional **`nginx/`** (or another reverse proxy) may sit in front of `web` in production; it is not part of the default `docker-compose.yml` in this repo.
 
 ---
 
@@ -687,23 +698,23 @@ docker compose down
 # View all container logs
 docker compose logs -f
 
-# View PHP error log
-docker compose exec php tail -f /var/log/php_errors.log
+# App logs (Apache / PHP stderr)
+docker compose logs -f web
 
 # Access MySQL shell (defaults: user/db stripedesk — match your .env)
 docker compose exec db mysql -u stripedesk -pstripedesk stripedesk
 
 # Install / update Composer dependencies
-docker compose exec php composer install
+docker compose exec web composer install
 
 # Run migrations (schema)
-docker compose exec php php /var/www/html/public/index.php migrate
+docker compose exec web php /var/www/html/public/index.php migrate
 
 # Seed data (after migrations)
 docker compose exec -i db mysql -u stripedesk -pstripedesk stripedesk < database/seeds.sql
 
-# Restart PHP (and nginx if needed) after .env changes
-docker compose restart php nginx
+# Restart app after .env changes
+docker compose restart web
 
 # API docs (hosted); use http://localhost:8081/docs/ when running Docker locally
 open https://api-stripedesk.duolinkmm.com/docs/#/

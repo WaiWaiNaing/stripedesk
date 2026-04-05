@@ -15,17 +15,14 @@
 5. [Installation & Setup](#installation--setup)
 6. [Running Locally with Ngrok & Stripe](#running-locally-with-ngrok--stripe)
 7. [Stripe Test Mode Walkthrough](#stripe-test-mode-walkthrough)
-8. [Swagger / OpenAPI Docs](#swagger--openapi-docs)
-9. [API Reference](#api-reference)
-10. [Postman Collection](#postman-collection)
-11. [ER Diagram](#er-diagram)
-12. [Security & Task Restriction Design](#security--task-restriction-design)
-13. [Mobile API Considerations](#mobile-api-considerations)
-14. [Staging vs Production Deployment](#staging-vs-production-deployment)
-15. [Additional Tools & Libraries](#additional-tools--libraries)
-16. [Email Receipts (SMTP)](#email-receipts-smtp)
-17. [Project Structure](#project-structure)
-18. [Quick Reference](#quick-reference)
+8. [API documentation](#api-documentation)
+9. [Security & Task Restriction Design](#security--task-restriction-design)
+10. [Mobile API Considerations](#mobile-api-considerations)
+11. [Staging vs Production Deployment](#staging-vs-production-deployment)
+12. [Additional Tools & Libraries](#additional-tools--libraries)
+13. [Email (SMTP for OTP)](#email-smtp-for-otp)
+14. [Project Structure](#project-structure)
+15. [Quick Reference](#quick-reference)
 
 ---
 
@@ -43,8 +40,8 @@
 | Email        | PHPMailer 6 (+ optional MailHog in dev)      |
 | Container    | Docker + Docker Compose                      |
 | Tunnel       | Ngrok (Stripe webhook in local dev)          |
-| Admin UI     | AdminLTE 3 (Bootstrap 4)                     |
-| SPA (repo)   | Vue 3 + Vite — see **StripeDesk_FrontEnd** `README.md` |
+| Admin / shop UI | Vue 3 SPA (**StripeDesk_FrontEnd** repo), not server-rendered |
+| Server views | CI error pages only (`application/views/errors/`) |
 
 ---
 
@@ -210,7 +207,7 @@ The file also adds **EUR**, three **products**, sample **orders** / **order_item
 Open your browser:
 
 - **API root**: [http://localhost:8081](http://localhost:8081) (or the port you set in `WEB_PORT`)
-- **Swagger UI**: [http://localhost:8081/docs/](http://localhost:8081/docs/)
+- **API docs (hosted)**: [https://api-stripedesk.duolinkmm.com/docs/#/](https://api-stripedesk.duolinkmm.com/docs/#/) — same OpenAPI spec as local [http://localhost:8081/docs/](http://localhost:8081/docs/) when Docker is running
 - Optional: add **MailHog** (or another mail catcher) to Compose for local email debugging.
 
 ---
@@ -289,8 +286,8 @@ docker compose restart php nginx
 
 ### Making a test purchase
 
-1. Log in as a user (e.g. `jane@ci3portal.local`)
-2. Browse the **Shop** and click **Buy** on any product
+1. Log in as a user in the **Vue SPA** (e.g. `jane@stripedesk.local` from seeds)
+2. Open the **shop**, add a product, and complete **Stripe Checkout**
 3. You are redirected to the **Stripe-hosted Checkout page**
 4. Use one of these test cards:
 
@@ -300,13 +297,13 @@ docker compose restart php nginx
 | Card declined     | `4000 0000 0000 0002` | Any future  | Any |
 | Requires 3D auth  | `4000 0025 0000 3155` | Any future  | Any |
 
-5. On success → Stripe fires the `checkout.session.completed` webhook → StripeDesk:
-   - Marks the order as `paid`
-   - Generates an **invoice** and **receipt**
-   - Sends an **email receipt** (viewable at [http://localhost:8025](http://localhost:8025))
-   - Redirects you to the success page with a link to your invoice
+5. On success → webhook and/or **checkout reconcile** runs the shared fulfillment path → StripeDesk:
+   - Marks the order as `paid` (when payment is complete)
+   - Creates **invoice** and **receipt** records
+   - Exposes receipt **PDF** via `GET /api/v1/receipts/{id}/pdf` (see SPA)
+   The SPA redirects to a **success** route; there is **no** post-payment HTML receipt email in this API — only **OTP** mail via `MAIL_*` when SMTP is configured (optional MailHog in dev).
 
-6. On cancel → you are redirected back to the shop with the order status set to `failed`
+6. On cancel → Stripe redirects to your configured cancel URL (`STRIPE_CANCEL_URL`)
 
 ---
 
@@ -325,438 +322,13 @@ docker compose exec php tail -f /var/log/php_errors.log
 
 ---
 
-## Swagger / OpenAPI Docs
+## API documentation
 
-Interactive Swagger UI is available when the app is running:
+All REST routes, request/response schemas, and **Try it out** tooling live in the hosted Swagger UI (OpenAPI spec). This README does not duplicate endpoint documentation.
 
-- `http://localhost:8081/docs/`
+**[https://api-stripedesk.duolinkmm.com/docs/#/](https://api-stripedesk.duolinkmm.com/docs/#/)**
 
-Files:
-
-- `public/docs/index.html` — Swagger UI page
-- `public/docs/openapi.yaml` — OpenAPI 3.0 spec
-
-Notes:
-
-- Swagger UI loads the spec from `./openapi.yaml`
-- You can use the **Authorize** button with `Bearer <jwt>` tokens for protected endpoints
-- The spec documents the current `/api/v1/` routes, request bodies, query params, and common response envelopes
-
----
-
-## API Reference
-
-All API endpoints are prefixed with `/api/v1/`. Authentication uses **Bearer JWT tokens**.
-
----
-
-### Authentication
-
-#### `POST /api/v1/auth/login`
-
-Authenticate and receive a JWT token.
-
-- Public
-- For verified accounts only
-- If the account exists but email is not yet verified, returns `403 email_not_verified`
-
-**Request body:**
-```json
-{
-  "email": "jane@stripedesk.local",
-  "password": "Password123!"
-}
-```
-
-**Response `200`:**
-```json
-{
-  "success": true,
-  "data": {
-    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "token_type": "Bearer",
-    "expires_in": 86400
-  }
-}
-```
-
-**Response `401`:**
-```json
-{
-  "success": false,
-  "error": {
-    "code": "invalid_credentials",
-    "message": "Invalid email or password"
-  }
-}
-```
-
-**Response `403` (unverified account):**
-```json
-{
-  "success": false,
-  "error": {
-    "code": "email_not_verified",
-    "message": "Verify your email with the OTP code sent when you registered.",
-    "intent": "registration"
-  }
-}
-```
-
-#### `POST /api/v1/auth/register`
-
-Create a **user** account and send an OTP email for verification.
-
-- Public
-- User flow only
-- Does **not** auto-login until OTP is verified
-
-**Request body:**
-```json
-{
-  "name": "Jane Smith",
-  "email": "jane@stripedesk.local",
-  "password": "Password123!"
-}
-```
-
-**Response `201`:**
-```json
-{
-  "success": true,
-  "data": {
-    "id": 2,
-    "email": "jane@stripedesk.local",
-    "requires_verification": true
-  }
-}
-```
-
-#### `POST /api/v1/auth/forgot`
-
-Issue a password-reset OTP email.
-
-- Public
-- User flow only
-- Admin accounts are rejected with `403`
-
-**Request body:**
-```json
-{
-  "email": "jane@stripedesk.local"
-}
-```
-
-**Response `200`:**
-```json
-{
-  "success": true,
-  "data": {
-    "status": "ok"
-  }
-}
-```
-
-#### `POST /api/v1/auth/verify-otp`
-
-Verify an OTP.
-
-- Public
-- Supported intents:
-  - `registration`
-  - `account_activation`
-  - `password_reset`
-- `registration` / `account_activation` returns JWT on success
-- `password_reset` returns a `reset_token`
-
-**Request body:**
-```json
-{
-  "email": "jane@stripedesk.local",
-  "otp": "123456",
-  "intent": "registration"
-}
-```
-
-**Response `200` (`registration` / `account_activation`):**
-```json
-{
-  "success": true,
-  "data": {
-    "access_token": "eyJ...",
-    "token_type": "Bearer",
-    "expires_in": 86400
-  }
-}
-```
-
-**Response `200` (`password_reset`):**
-```json
-{
-  "success": true,
-  "data": {
-    "reset_token": "generated-reset-token",
-    "reset_expires_at": "2026-03-31 12:00:00"
-  }
-}
-```
-
-#### `POST /api/v1/auth/reset-password`
-
-Reset password with a verified reset token.
-
-- Public
-- User flow only
-- Returns JWT so API clients can create a new authenticated session after reset
-
-**Request body:**
-```json
-{
-  "email": "jane@stripedesk.local",
-  "reset_token": "generated-reset-token",
-  "new_password": "NewPassword123!"
-}
-```
-
-**Response `200`:**
-```json
-{
-  "success": true,
-  "data": {
-    "status": "ok",
-    "access_token": "eyJ...",
-    "token_type": "Bearer",
-    "expires_in": 86400
-  }
-}
-```
-
-#### `GET /api/v1/auth/me`
-
-Returns the authenticated user's profile.
-
-- JWT required
-
-**Headers:**
-```
-Authorization: Bearer <token>
-```
-
-**Response `200`:**
-```json
-{
-  "success": true,
-  "data": {
-    "id": 2,
-    "name": "Jane Smith",
-    "email": "jane@stripedesk.local",
-    "role": "user",
-    "created_at": "2026-03-31 00:00:00"
-  }
-}
-```
-
----
-
-### Products
-
-#### `GET /api/v1/products`
-
-Returns all active catalog products.
-
-- JWT required
-
-**Response `200`:**
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": 1,
-      "name": "Basic Plan",
-      "description": "Access to core features for individuals.",
-      "price": "29.99",
-      "currency_code": "USD"
-    }
-  ]
-}
-```
-
-### Checkout / Stripe
-
-#### `POST /api/v1/checkout/session`
-
-Create a Stripe Checkout session for the authenticated user.
-
-- JWT required
-
-#### `POST /api/v1/stripe/webhook`
-
-Stripe webhook endpoint.
-
-- Public
-- Intended for Stripe only
-
----
-
-### Invoices
-
-#### `GET /api/v1/invoices`
-
-Returns invoices for the authenticated user. Admins receive all invoices.
-
-- JWT required
-
-#### `GET /api/v1/invoices/:id`
-
-Returns full details of one invoice.
-
-- JWT required
-- Users can access only their own invoice
-- Admin can access all
-
----
-
-### Receipts
-
-#### `GET /api/v1/receipts/:id`
-
-Returns full details of one receipt.
-
-- JWT required
-- Users can access only their own receipt
-- Admin can access all
-
----
-
-### Admin
-
-All endpoints below require:
-
-- JWT required
-- `role = admin`
-
-#### `GET /api/v1/admin/users`
-
-List active users.
-
-Query params:
-
-- `limit` optional, default `200`, max `500`
-
-#### `POST /api/v1/admin/users`
-
-Create an **admin** account and send an OTP email for account activation.
-
-#### `DELETE /api/v1/admin/users/:id`
-
-Soft-delete a user.
-
-- Cannot delete self
-- Cannot delete the last active admin
-
-#### `GET /api/v1/admin/products`
-
-List products for admin.
-
-Query params:
-
-- `include_deleted=1` optional
-
-#### `POST /api/v1/admin/products`
-
-Create a product.
-
-#### `PUT /api/v1/admin/products/:id`
-
-Update a product.
-
-#### `GET /api/v1/admin/currencies`
-
-List currencies.
-
-#### `POST /api/v1/admin/currencies`
-
-Create a currency.
-
-#### `PUT /api/v1/admin/currencies/:id`
-
-Update a currency.
-
-- Currency `code` is immutable
-
-#### `GET /api/v1/admin/stripe-logs`
-
-List Stripe/system log entries.
-
-Query params:
-
-- `limit` optional, default `100`, max `500`
-
----
-
-### Response Envelope
-
-Successful responses:
-
-```json
-{
-  "success": true,
-  "data": {}
-}
-```
-
-Error responses:
-
-```json
-{
-  "success": false,
-  "error": {
-    "code": "validation_error",
-    "message": "Human-readable message"
-  }
-}
-```
-
-### HTTP Status Codes
-
-| Code | Meaning                               |
-|------|---------------------------------------|
-| 200  | Success                               |
-| 201  | Created                               |
-| 400  | Bad request / validation failure      |
-| 401  | Unauthenticated / expired token       |
-| 403  | Forbidden / insufficient permissions  |
-| 404  | Resource not found                    |
-| 405  | Method not allowed                    |
-
----
-
-## Postman Collection
-
-A ready-to-import Postman collection is included at:
-
-```
-postman/StripeDesk.postman_collection.json
-```
-
-### Importing
-
-1. Open Postman → click **Import** → drag the JSON file in
-2. Set the `base_url` collection variable to `http://localhost:8081` (match your `WEB_PORT`)
-3. Run **POST Login** first — the collection auto-saves the token to `jwt_token` via a test script
-4. All subsequent requests automatically attach the `Bearer` token via a collection-level pre-request script
-
-### Included requests
-
-| Folder    | Request              | Method |
-|-----------|----------------------|--------|
-| Auth      | Login                | POST   |
-| Auth      | Me (profile)         | GET    |
-| Products  | All Products         | GET    |
-| Invoices  | My Invoices          | GET    |
-| Invoices  | Invoice by ID        | GET    |
-| Receipts  | Receipt by ID        | GET    |
+For local development, run Docker and open `http://localhost:8081/docs/` (same UI; spec source: `public/docs/openapi.yaml`). Optional Postman import: `postman/StripeDesk.postman_collection.json` — set the collection `base_url` to your API origin.
 
 ---
 
@@ -864,7 +436,7 @@ For a native mobile payment experience, replace the Stripe Checkout redirect wit
 | Limitation                          | Impact                                           | Mitigation                                       |
 |-------------------------------------|--------------------------------------------------|--------------------------------------------------|
 | No async / event loop               | Cannot handle WebSockets or server-sent events   | Use Stripe webhooks for real-time event delivery |
-| No built-in OpenAPI / Swagger       | API documentation must be maintained manually    | Use Postman collection + this README             |
+| OpenAPI spec is file-driven         | Spec can drift from code if not updated          | Keep `public/docs/openapi.yaml` in sync; publish via [Swagger UI](https://api-stripedesk.duolinkmm.com/docs/#/) |
 | No native rate limiting middleware  | Login brute-force not throttled at app level     | Use Nginx `limit_req_zone` or a Redis limiter    |
 | Synchronous PHP-FPM                 | High concurrency exhausts the worker pool        | Increase FPM workers; offload email to a queue   |
 | CI3 is legacy (PHP 7.x only)        | Cannot use PHP 8 attributes, fibres, or enums    | Consider migrating to CI4 or Laravel for v2      |
@@ -978,9 +550,8 @@ Database migrations run as a one-off ECS task before each traffic shift, ensurin
 | **Stripe PHP SDK ^7**       | Checkout Sessions, Webhook verification, Price/Product API    |
 | **Firebase PHP-JWT ^5.5**   | HS256 JWT encode/decode for the REST API                      |
 | **Dompdf ^2**               | HTML → PDF for downloadable receipts                            |
-| **PHPMailer v6**            | SMTP email sending for HTML receipt delivery                  |
-| **AdminLTE 3**              | Bootstrap 4 admin template (sidebar, stat cards, data tables) |
-| **MailHog**                 | Local SMTP capture server with web UI for email testing       |
+| **PHPMailer v6**            | SMTP for OTP / verification email (`Stripedesk\Mail\Otp_mailer`) |
+| **MailHog**                 | Optional local SMTP capture (add to Compose if needed)        |
 | **Ngrok v3**                | Secure HTTPS tunnel for Stripe webhook testing locally        |
 | **Docker + Compose v2**     | Full environment containerisation and service orchestration   |
 | **MySQL 8**                 | JSON column type used for `stripe_logs.payload`               |
@@ -1001,121 +572,101 @@ Database migrations run as a one-off ECS task before each traffic shift, ensurin
 
 ---
 
-## Email Receipts (SMTP)
+## Email (SMTP for OTP)
 
-StripeDesk can send an HTML email receipt to the buyer after a successful payment (from the fulfillment path after invoice/receipt records exist). **OTP and auth emails** use the same SMTP stack; see [OTP verification & SMTP (production note)](#otp-verification--smtp-production-note) if outbound mail is blocked on your host.
+Outbound mail is used for **OTP / verification** messages (`application/Stripedesk/Mail/Otp_mailer.php`, invoked from `Auth_password_service`). Plain-text body is built in code, not a separate view file.
+
+**Receipts** are exposed over the API as data and **PDF download** (`Receipt_html_document_builder` + Dompdf), not as a post-payment HTML email in this repository.
+
+See [OTP verification & SMTP (production note)](#otp-verification--smtp-production-note) if outbound mail is blocked on your host.
 
 ### Local development (MailHog)
 
-If you add **MailHog** (or another mail catcher) to Compose, point `MAIL_*` / SMTP settings at it and open the catcher UI on its documented port. The default `docker-compose.yml` in this repo does **not** include MailHog — add it when you need to capture mail locally.
+If you add **MailHog** (or another mail catcher) to Compose, point the `MAIL_*` variables below at it. The default `docker-compose.yml` does **not** include MailHog.
 
-### Switching to a real SMTP provider
-
-Update your `.env`:
+### Configuring SMTP (matches `.env.example`)
 
 ```env
-# Mailtrap (staging testing — emails go to your Mailtrap inbox, not real recipients)
-SMTP_HOST=smtp.mailtrap.io
-SMTP_PORT=2525
-SMTP_USER=your_mailtrap_username
-SMTP_PASS=your_mailtrap_password
+# Mailtrap (staging — inbox capture, not real recipients)
+MAIL_HOST=sandbox.smtp.mailtrap.io
+MAIL_PORT=2525
+MAIL_USERNAME=your_mailtrap_username
+MAIL_PASSWORD=your_mailtrap_password
+MAIL_ENCRYPTION=tls
+MAIL_FROM_ADDRESS=noreply@yourdomain.com
+MAIL_FROM_NAME=StripeDesk
 
-# SendGrid (production)
-SMTP_HOST=smtp.sendgrid.net
-SMTP_PORT=587
-SMTP_USER=apikey
-SMTP_PASS=SG.your_sendgrid_api_key
-SMTP_FROM=receipts@yourdomain.com
-SMTP_FROM_NAME=StripeDesk
+# SendGrid (example — use their SMTP credentials)
+MAIL_HOST=smtp.sendgrid.net
+MAIL_PORT=587
+MAIL_USERNAME=apikey
+MAIL_PASSWORD=SG.your_sendgrid_api_key
+MAIL_ENCRYPTION=tls
+MAIL_FROM_ADDRESS=receipts@yourdomain.com
+MAIL_FROM_NAME=StripeDesk
 ```
-
-The HTML email template is located at:
-
-```
-application/views/email/receipt.php
-```
-
-It uses inline CSS styles for broad email client compatibility (Gmail, Outlook, Apple Mail).
 
 ---
 
 ## Project Structure
 
+High level: **REST API + JSON** (no server-rendered admin/shop). The Vue SPA lives in **StripeDesk_FrontEnd**.
+
 ```
 stripedesk/
+├── Dockerfile                    # PHP-FPM app image (Composer deps)
+├── docker-compose.yml            # nginx + php + db
+├── nginx/
+│   ├── Dockerfile
+│   ├── nginx.conf
+│   └── sites/stripedesk.conf     # try_files → public/index.php
 ├── application/
-│   ├── config/
-│   │   ├── config.php            # Base URL, sessions, CSRF settings
-│   │   ├── database.php          # DB connection (reads from env)
-│   │   ├── autoload.php          # Libraries, helpers auto-loaded
-│   │   └── routes.php            # All URL route definitions
-│   ├── migrations/               # CI3 migrations (canonical schema)
+│   ├── config/                   # config, database, routes, jwt, stripe, env, migration, autoload
 │   ├── controllers/
-│   │   ├── Migrate.php           # Migration runner (dev/CLI; lock down in prod)
-│   │   ├── Auth.php              # Login / logout
-│   │   ├── Admin.php             # Admin panel: users, products, invoices
-│   │   ├── Shop.php              # User shop + Stripe Checkout flow
-│   │   ├── Invoice.php           # User invoice and receipt viewer
-│   │   ├── Webhook.php           # Stripe webhook receiver & handler
+│   │   ├── Migrate.php           # migrations (prefer CLI in prod)
+│   │   ├── Cron.php              # e.g. stripe_reconcile
+│   │   ├── Welcome.php
 │   │   └── api/
-│   │       └── V1.php            # REST API v1 endpoints
+│   │       ├── Auth.php
+│   │       ├── Products.php
+│   │       ├── Checkout.php      # session create + reconcile
+│   │       ├── Stripe.php        # POST …/stripe/webhook
+│   │       ├── Carts.php
+│   │       ├── Invoices.php
+│   │       ├── Receipts.php      # list + PDF
+│   │       └── admin/
+│   │           ├── Users.php
+│   │           ├── Products.php
+│   │           ├── Currencies.php
+│   │           └── Stripe_logs.php
 │   ├── core/
-│   │   └── MY_Controller.php     # Base controller with auth guards
-│   ├── models/
-│   │   ├── User_model.php
-│   │   ├── Currency_model.php
-│   │   ├── Product_model.php
-│   │   ├── Order_model.php
-│   │   ├── Order_item_model.php
-│   │   ├── Invoice_model.php
-│   │   ├── Receipt_model.php
-│   │   └── Stripe_log_model.php
+│   │   ├── MY_Controller.php
+│   │   ├── MY_Model.php
+│   │   └── Api_base_controller.php
+│   ├── migrations/               # canonical schema (+ schema.sql mirror)
+│   ├── models/                   # User, Product, Order, Invoice, Receipt, Cart, OTP, …
 │   ├── libraries/
-│   │   ├── Stripe_lib.php        # Stripe API wrapper (products, sessions)
-│   │   ├── JWT_lib.php           # Firebase JWT encode/decode wrapper
-│   │   └── Mailer_lib.php        # PHPMailer SMTP wrapper
+│   │   └── Jwt_auth.php
+│   ├── Stripedesk/               # namespaced app layer
+│   │   ├── Services/             # checkout, webhook, fulfillment, receipt PDF, auth, …
+│   │   ├── Dto/
+│   │   ├── Contracts/            # e.g. Pdf_renderer_interface
+│   │   ├── Mail/Otp_mailer.php
+│   │   ├── Api/                  # standardized JSON responses
+│   │   ├── Support/
+│   │   └── Validation/
 │   └── views/
-│       ├── layouts/
-│       │   ├── admin_layout.php  # AdminLTE shell with sidebar
-│       │   └── user_layout.php   # Bootstrap navbar shell
-│       ├── auth/
-│       │   └── login.php
-│       ├── admin/
-│       │   ├── dashboard.php
-│       │   ├── users.php
-│       │   ├── create_user.php
-│       │   ├── edit_user.php
-│       │   ├── products.php
-│       │   ├── create_product.php
-│       │   ├── edit_product.php
-│       │   ├── invoices.php
-│       │   └── stripe_logs.php
-│       ├── shop/
-│       │   ├── index.php         # Product listing
-│       │   ├── success.php       # Post-payment confirmation
-│       │   └── cancel.php        # Payment cancelled
-│       ├── invoice/
-│       │   ├── list.php          # User's invoice list
-│       │   ├── view.php          # Invoice detail
-│       │   └── receipt.php       # Receipt detail
-│       └── email/
-│           └── receipt.php       # HTML email template
+│       └── errors/               # CI error templates only
 ├── database/
-│   └── seeds.sql                 # Data only — run after migrations
-├── docker/
-│   ├── php/
-│   │   ├── Dockerfile            # PHP 7.3-FPM + extensions + Composer
-│   │   └── php.ini               # Upload limits, error logging
-│   ├── nginx/
-│   │   └── default.conf          # Nginx server block + PHP-FPM proxy
-│   └── mysql/
-│       └── my.cnf                # MySQL charset and collation settings
+│   └── seeds.sql
 ├── postman/
 │   └── StripeDesk.postman_collection.json
 ├── public/
-│   └── index.php                 # CI3 entry point + .env loader
-├── docker-compose.yml
+│   ├── index.php                 # front controller + .env load
+│   └── docs/
+│       └── openapi.yaml          # Swagger UI source
 ├── composer.json
+├── composer.lock
 ├── .env.example
 └── README.md
 ```
@@ -1152,8 +703,8 @@ docker compose exec -i db mysql -u stripedesk -pstripedesk stripedesk < database
 # Restart PHP (and nginx if needed) after .env changes
 docker compose restart php nginx
 
-# Open Swagger UI
-open http://localhost:8081/docs/
+# API docs (hosted); use http://localhost:8081/docs/ when running Docker locally
+open https://api-stripedesk.duolinkmm.com/docs/#/
 
 # Open the API root in browser (macOS)
 open http://localhost:8081

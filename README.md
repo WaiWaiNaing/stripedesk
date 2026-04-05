@@ -9,20 +9,23 @@
 ## Table of Contents
 
 1. [Tech Stack](#tech-stack)
-2. [Installation & Setup](#installation--setup)
-3. [Running Locally with Ngrok & Stripe](#running-locally-with-ngrok--stripe)
-4. [Stripe Test Mode Walkthrough](#stripe-test-mode-walkthrough)
-5. [Swagger / OpenAPI Docs](#swagger--openapi-docs)
-6. [API Reference](#api-reference)
-7. [Postman Collection](#postman-collection)
-8. [ER Diagram](#er-diagram)
-9. [Security & Task Restriction Design](#security--task-restriction-design)
-10. [Mobile API Considerations](#mobile-api-considerations)
-11. [Staging vs Production Deployment](#staging-vs-production-deployment)
-12. [Additional Tools & Libraries](#additional-tools--libraries)
-13. [Email Receipts (SMTP)](#email-receipts-smtp)
-14. [Project Structure](#project-structure)
-15. [Quick Reference](#quick-reference)
+2. [Public deployment](#public-deployment)
+3. [Payment fulfillment resilience](#payment-fulfillment-resilience)
+4. [OTP verification & SMTP (production note)](#otp-verification--smtp-production-note)
+5. [Installation & Setup](#installation--setup)
+6. [Running Locally with Ngrok & Stripe](#running-locally-with-ngrok--stripe)
+7. [Stripe Test Mode Walkthrough](#stripe-test-mode-walkthrough)
+8. [Swagger / OpenAPI Docs](#swagger--openapi-docs)
+9. [API Reference](#api-reference)
+10. [Postman Collection](#postman-collection)
+11. [ER Diagram](#er-diagram)
+12. [Security & Task Restriction Design](#security--task-restriction-design)
+13. [Mobile API Considerations](#mobile-api-considerations)
+14. [Staging vs Production Deployment](#staging-vs-production-deployment)
+15. [Additional Tools & Libraries](#additional-tools--libraries)
+16. [Email Receipts (SMTP)](#email-receipts-smtp)
+17. [Project Structure](#project-structure)
+18. [Quick Reference](#quick-reference)
 
 ---
 
@@ -34,12 +37,62 @@
 | Language     | PHP 7.3 (FPM)                                |
 | Database     | MySQL 8.0                                    |
 | Web Server   | Nginx 1.25 (Alpine)                          |
-| Payments     | Stripe PHP SDK v10 (Checkout + Webhooks)     |
-| Auth (API)   | Firebase JWT (HS256)                         |
-| Email        | PHPMailer 6 + MailHog (local dev)            |
+| Payments     | Stripe PHP SDK ^7.128 (Checkout + Webhooks)  |
+| Auth (API)   | Firebase JWT (HS256) + httpOnly auth cookies |
+| PDF receipts | Dompdf ^2.x (HTML → PDF)                       |
+| Email        | PHPMailer 6 (+ optional MailHog in dev)      |
 | Container    | Docker + Docker Compose                      |
 | Tunnel       | Ngrok (Stripe webhook in local dev)          |
 | Admin UI     | AdminLTE 3 (Bootstrap 4)                     |
+| SPA (repo)   | Vue 3 + Vite — see **StripeDesk_FrontEnd** `README.md` |
+
+---
+
+## Public deployment
+
+Reference deployment (same codebase family as this repository):
+
+| Environment | URL |
+|-------------|-----|
+| **Web portal (Vue SPA)** | [https://stripedesk.duolinkmm.com/](https://stripedesk.duolinkmm.com/) |
+| **REST API + Swagger UI** | [https://api-stripedesk.duolinkmm.com/docs/#/](https://api-stripedesk.duolinkmm.com/docs/#/) |
+
+Configure the SPA with `VITE_API_BASE_URL` pointing at the API origin (e.g. `https://api-stripedesk.duolinkmm.com/api/v1`). Set `CORS_ALLOW_ORIGIN` on the API to include the SPA origin.
+
+---
+
+## Payment fulfillment resilience
+
+Stripe Checkout completion can be observed through **webhooks**, the **browser return URL**, and **retries**. StripeDesk uses one **idempotent** code path so invoice/receipt creation does not double-run.
+
+| Layer | What it handles |
+|-------|-----------------|
+| **Idempotency in fulfillment** | `Checkout_session_fulfillment_service::apply()` skips work when the order is already `paid`, so Stripe webhook retries and duplicate delivery do not create duplicate invoices/receipts. |
+| **Webhook** | `POST /api/v1/stripe/webhook` — primary path when Stripe delivers `checkout.session.completed` (signature verified when `STRIPE_WEBHOOK_SECRET` is set). |
+| **Active reconcile on success page** | After redirect, the SPA calls `POST /api/v1/checkout/reconcile` with `session_id` so a paid session is fulfilled even if the webhook is **slower than the user’s redirect** (race). |
+| **Shared `apply()` method** | Webhook handler and reconcile/cron all call the same fulfillment service — **single fulfillment logic**, no duplicated business rules. |
+| **Pending checkout page** | If the session is not yet `paid`/`complete` in Stripe when reconcile runs, the user stays on a **pending** flow instead of a false success. |
+| **Cron reconciliation** | CLI: `php public/index.php cron stripe_reconcile [token]` — polls Stripe for pending orders with a Checkout session (e.g. every **15 minutes** in production). Covers **server down** during the webhook window. |
+| **Stripe retries** | Stripe retries webhooks for an extended period (on the order of **days**); combined with cron + client reconcile, **short outages** recover without manual DB fixes. |
+
+Implementation entry points: `application/Stripedesk/Services/Checkout_session_fulfillment_service.php`, `Stripe_webhook_service.php`, `Checkout_reconcile_service.php`, `application/controllers/Cron.php`.
+
+---
+
+## OTP verification & SMTP (production note)
+
+On some hosts (e.g. **DigitalOcean** without a transactional email add-on), **outbound SMTP from the droplet may be blocked or unreliable** on free/low tiers, so OTP emails might not be delivered.
+
+For that reason the API supports a **strictly opt-in** development flag:
+
+```env
+# .env — NEVER enable in a real production environment
+OTP_DEV_RETURN_CODE=true
+```
+
+When `OTP_DEV_RETURN_CODE` is `true`, successful OTP-related API responses can include the **OTP code in the JSON body** (see `Auth_password_service`) so testers can complete registration/password reset **without email**. **Turn this off** as soon as a proper SMTP provider (SendGrid, Mailgun, SES, Postmark, etc.) is configured (`MAIL_HOST`, `MAIL_USERNAME`, `MAIL_PASSWORD`, … in `.env`).
+
+**Planned improvement:** move to a dedicated mail provider and keep `OTP_DEV_RETURN_CODE=false` in production so OTPs are **email-only**.
 
 ---
 
@@ -75,8 +128,7 @@ cp .env.example .env
 Open `.env` and fill in your Stripe test keys (see [Stripe Test Mode Walkthrough](#stripe-test-mode-walkthrough)):
 
 ```env
-STRIPE_SECRET=sk_test_REPLACE_ME
-STRIPE_PUBLISHABLE=pk_test_REPLACE_ME
+STRIPE_SECRET_KEY=sk_test_REPLACE_ME
 STRIPE_WEBHOOK_SECRET=whsec_REPLACE_ME     # filled in after Step 4
 JWT_SECRET=your_random_32_char_secret_here
 APP_URL=http://localhost:8081
@@ -92,12 +144,13 @@ APP_URL=http://localhost:8081
 docker compose up -d --build
 ```
 
-This starts two services (see `docker-compose.yml`):
+This starts **nginx**, **php-fpm**, and **MySQL** (see `docker-compose.yml`):
 
-| Service / container | Purpose                 | Port(s)  |
-|---------------------|-------------------------|----------|
-| `web` / `stripedesk-web` | PHP + Apache (app) | `8081` (override with `WEB_PORT` in `.env`) |
-| `db` / `stripedesk-db`   | MySQL 8            | `3306`   |
+| Service / container | Purpose | Port(s) |
+|---------------------|---------|---------|
+| `nginx` / `stripedesk-nginx` | Reverse proxy → PHP | `8081` host → `80` (override with `WEB_PORT` in `.env`) |
+| `php` / `stripedesk-php` | PHP-FPM + CodeIgniter | internal only |
+| `db` / `stripedesk-db` | MySQL 8 | `3306` (override with `DB_PORT` in `.env`) |
 
 Default database credentials match Docker Compose env defaults (`MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`, typically `stripedesk` / `stripedesk` / `stripedesk`). Override them in `.env` if you change the compose file.
 
@@ -106,7 +159,7 @@ Default database credentials match Docker Compose env defaults (`MYSQL_USER`, `M
 ### Step 3 — Install PHP dependencies
 
 ```bash
-docker compose exec web composer install
+docker compose exec php composer install
 ```
 
 ---
@@ -118,7 +171,7 @@ Schema is defined in **`application/migrations/`** (and mirrored in `application
 With CodeIgniter 3 wired and `public/index.php` as the front controller:
 
 ```bash
-docker compose exec web php /var/www/html/public/index.php migrate
+docker compose exec php php /var/www/html/public/index.php migrate
 ```
 
 That runs all pending migrations up to `application/config/migration.php` → `migration_version`.
@@ -158,7 +211,7 @@ Open your browser:
 
 - **API root**: [http://localhost:8081](http://localhost:8081) (or the port you set in `WEB_PORT`)
 - **Swagger UI**: [http://localhost:8081/docs/](http://localhost:8081/docs/)
-- If you add **MailHog** (or another mail catcher) to Compose, use its documented port for the email UI (not included in the default two-service setup).
+- Optional: add **MailHog** (or another mail catcher) to Compose for local email debugging.
 
 ---
 
@@ -188,7 +241,7 @@ Copy the `https://...ngrok-free.app` URL.
 2. Click **Add endpoint**
 3. Set **Endpoint URL** to:
    ```
-   https://YOUR-NGROK-SUBDOMAIN.ngrok-free.app/webhook/stripe
+   https://YOUR-NGROK-SUBDOMAIN.ngrok-free.app/api/v1/stripe/webhook
    ```
 4. Under **Events to listen to**, select:
    - `checkout.session.completed`
@@ -205,10 +258,10 @@ STRIPE_WEBHOOK_SECRET=whsec_REPLACE_WITH_YOUR_SECRET
 APP_URL=https://YOUR-NGROK-SUBDOMAIN.ngrok-free.app
 ```
 
-Restart the app container to pick up the new env vars:
+Restart PHP (and nginx if you changed proxy-related config) to pick up new env vars:
 
 ```bash
-docker compose restart web
+docker compose restart php nginx
 ```
 
 ---
@@ -267,7 +320,7 @@ After a test purchase, check the Stripe dashboard:
 Check StripeDesk application logs:
 
 ```bash
-docker compose exec web tail -f /var/log/php_errors.log
+docker compose exec php tail -f /var/log/php_errors.log
 ```
 
 ---
@@ -922,8 +975,9 @@ Database migrations run as a one-off ECS task before each traffic shift, ensurin
 
 | Tool / Library              | Purpose                                                       |
 |-----------------------------|---------------------------------------------------------------|
-| **Stripe PHP SDK v10**      | Checkout Sessions, Webhook verification, Price/Product API    |
-| **Firebase PHP-JWT v6**     | HS256 JWT encode/decode for the REST API                      |
+| **Stripe PHP SDK ^7**       | Checkout Sessions, Webhook verification, Price/Product API    |
+| **Firebase PHP-JWT ^5.5**   | HS256 JWT encode/decode for the REST API                      |
+| **Dompdf ^2**               | HTML → PDF for downloadable receipts                            |
 | **PHPMailer v6**            | SMTP email sending for HTML receipt delivery                  |
 | **AdminLTE 3**              | Bootstrap 4 admin template (sidebar, stat cards, data tables) |
 | **MailHog**                 | Local SMTP capture server with web UI for email testing       |
@@ -949,17 +1003,11 @@ Database migrations run as a one-off ECS task before each traffic shift, ensurin
 
 ## Email Receipts (SMTP)
 
-StripeDesk automatically sends an HTML email receipt to the buyer after every successful Stripe payment. The email is triggered inside `Webhook.php` after the invoice and receipt records are generated.
+StripeDesk can send an HTML email receipt to the buyer after a successful payment (from the fulfillment path after invoice/receipt records exist). **OTP and auth emails** use the same SMTP stack; see [OTP verification & SMTP (production note)](#otp-verification--smtp-production-note) if outbound mail is blocked on your host.
 
 ### Local development (MailHog)
 
-No configuration needed. All emails are captured by MailHog and viewable at:
-
-```
-http://localhost:8025
-```
-
-Emails are never delivered to real addresses in local dev — MailHog intercepts all SMTP traffic.
+If you add **MailHog** (or another mail catcher) to Compose, point `MAIL_*` / SMTP settings at it and open the catcher UI on its documented port. The default `docker-compose.yml` in this repo does **not** include MailHog — add it when you need to capture mail locally.
 
 ### Switching to a real SMTP provider
 
@@ -1087,22 +1135,22 @@ docker compose down
 docker compose logs -f
 
 # View PHP error log
-docker compose exec web tail -f /var/log/php_errors.log
+docker compose exec php tail -f /var/log/php_errors.log
 
 # Access MySQL shell (defaults: user/db stripedesk — match your .env)
 docker compose exec db mysql -u stripedesk -pstripedesk stripedesk
 
 # Install / update Composer dependencies
-docker compose exec web composer install
+docker compose exec php composer install
 
 # Run migrations (schema)
-docker compose exec web php /var/www/html/public/index.php migrate
+docker compose exec php php /var/www/html/public/index.php migrate
 
 # Seed data (after migrations)
 docker compose exec -i db mysql -u stripedesk -pstripedesk stripedesk < database/seeds.sql
 
-# Restart web after .env changes
-docker compose restart web
+# Restart PHP (and nginx if needed) after .env changes
+docker compose restart php nginx
 
 # Open Swagger UI
 open http://localhost:8081/docs/

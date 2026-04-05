@@ -38,6 +38,10 @@ final class Auth_password_service
             return array(false, 'invalid intent');
         }
         $otp_plain = $this->issue_otp_verification((int) $user_id, $email, $intent);
+        if ($otp_plain === null)
+        {
+            return array(false, 'failed to create verification code (check otp_verifications table and DB logs)');
+        }
         $data = array('requires_verification' => true);
         if (function_exists('sd_env_bool') && sd_env_bool('OTP_DEV_RETURN_CODE', false))
         {
@@ -81,6 +85,12 @@ final class Auth_password_service
         }
 
         $dev_otp = $this->issue_otp_verification((int) $id, $email, 'registration');
+        if ($dev_otp === null)
+        {
+            $this->ci->user_model->soft_deactivate((int) $id);
+
+            return array(false, 'failed to complete registration — please try again');
+        }
 
         $data = array(
             'id' => (int) $id,
@@ -182,6 +192,10 @@ final class Auth_password_service
         }
 
         $dev_otp = $this->issue_otp_verification((int) $user->id, $email, $intent);
+        if ($dev_otp === null)
+        {
+            return array(false, 'failed to send verification code');
+        }
         $data = array(
             'status' => 'ok',
             'requires_verification' => true,
@@ -390,35 +404,51 @@ final class Auth_password_service
      * @param int    $user_id
      * @param string $email
      * @param string $intent registration|account_activation
-     * @return string OTP plaintext (for dev only)
+     * @return string|null OTP plaintext (for dev only); null if DB insert failed
      */
     private function issue_otp_verification($user_id, $email, $intent)
     {
-        $otp = (string) random_int(100000, 999999);
-        $otp_hash = password_hash($otp, PASSWORD_BCRYPT);
-        $ttl = (int) (function_exists('sd_env_int') ? sd_env_int('OTP_TTL_SECONDS', 600) : 600);
-        $expires = date('Y-m-d H:i:s', time() + max(60, $ttl));
+        try
+        {
+            $otp = (string) random_int(100000, 999999);
+            $otp_hash = password_hash($otp, PASSWORD_BCRYPT);
+            $ttl = (int) (function_exists('sd_env_int') ? sd_env_int('OTP_TTL_SECONDS', 600) : 600);
+            $expires = date('Y-m-d H:i:s', time() + max(60, $ttl));
 
-        $this->ci->otp_verification_model->create(array(
-            'user_id' => (int) $user_id,
-            'email' => $email,
-            'intent' => $intent,
-            'otp_hash' => $otp_hash,
-            'otp_expires_at' => $expires,
-            'attempts' => 0,
-        ));
+            $otp_row_id = $this->ci->otp_verification_model->create(array(
+                'user_id' => (int) $user_id,
+                'email' => $email,
+                'intent' => $intent,
+                'otp_hash' => $otp_hash,
+                'otp_expires_at' => $expires,
+                'attempts' => 0,
+            ));
+            if ( ! $otp_row_id)
+            {
+                $err = $this->ci->db->error();
+                log_message('error', 'otp_verification create failed: ' . (isset($err['message']) ? $err['message'] : 'unknown'));
 
-        $this->ci->stripe_log_model->log_event('auth.otp_verification.issued', array(
-            'user_id' => (int) $user_id,
-            'email' => $email,
-            'intent' => $intent,
-            'expires_at' => $expires,
-            'dev_otp' => $otp,
-        ));
+                return null;
+            }
 
-        $this->send_otp_email($email, $otp, $intent);
+            $this->safe_stripe_log_event('auth.otp_verification.issued', array(
+                'user_id' => (int) $user_id,
+                'email' => $email,
+                'intent' => $intent,
+                'expires_at' => $expires,
+                'dev_otp' => $otp,
+            ));
 
-        return $otp;
+            $this->send_otp_email($email, $otp, $intent);
+
+            return $otp;
+        }
+        catch (\Throwable $e)
+        {
+            log_message('error', 'issue_otp_verification: ' . $e->getMessage() . ' at ' . $e->getFile() . ':' . $e->getLine());
+
+            return null;
+        }
     }
 
     /**
@@ -441,7 +471,7 @@ final class Auth_password_service
             'attempts' => 0,
         ));
 
-        $this->ci->stripe_log_model->log_event('auth.otp.issued', array(
+        $this->safe_stripe_log_event('auth.otp.issued', array(
             'email' => $email,
             'intent' => 'password_reset',
             'expires_at' => $expires,
@@ -472,12 +502,23 @@ final class Auth_password_service
         $mailer = new Otp_mailer();
         $sent = $mailer->send($email, $otp_plain, $intent);
         $dt_ms = (int) round((microtime(true) - $t0) * 1000);
-        $this->ci->stripe_log_model->log_event('auth.otp.email_dispatch', array(
+        $this->safe_stripe_log_event('auth.otp.email_dispatch', array(
             'email' => $email,
             'intent' => $intent,
             'sent' => $sent,
             'transport' => $transport,
             'duration_ms' => $dt_ms,
         ));
+    }
+    private function safe_stripe_log_event($event_type, array $payload)
+    {
+        try
+        {
+            $this->ci->stripe_log_model->log_event($event_type, $payload);
+        }
+        catch (\Throwable $e)
+        {
+            log_message('error', 'stripe_logs log_event skipped: ' . $e->getMessage());
+        }
     }
 }

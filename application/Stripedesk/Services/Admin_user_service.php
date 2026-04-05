@@ -53,10 +53,16 @@ final class Admin_user_service
         list($ok, $otp_meta) = $auth_pw->issue_email_verification_otp((int) $id, $email, 'account_activation');
         if ( ! $ok)
         {
+            $this->ci->user_model->soft_deactivate((int) $id);
+
             return array(false, (string) $otp_meta);
         }
 
         $user = $this->ci->user_model->find($id);
+        if ( ! $user)
+        {
+            return array(false, 'failed to load new user');
+        }
         $data = array(
             'id' => (int) $user->id,
             'name' => (string) $user->name,
@@ -75,14 +81,6 @@ final class Admin_user_service
 
         return array(true, $data);
     }
-
-    /**
-     * Soft-delete a user (admin only). Cannot delete self or the last active admin.
-     *
-     * @param int $target_id
-     * @param int $admin_user_id
-     * @return array{0:bool,1:mixed}
-     */
     public function soft_delete_user($target_id, $admin_user_id)
     {
         $target_id = (int) $target_id;

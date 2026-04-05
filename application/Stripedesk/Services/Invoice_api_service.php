@@ -163,7 +163,7 @@ final class Invoice_api_service
                     $reused_existing_session = true;
                 }
             }
-            catch (\Exception $e)
+            catch (\Throwable $e)
             {
                 // If stale/invalid, create a fresh session below.
             }
@@ -171,32 +171,59 @@ final class Invoice_api_service
 
         if ($session_id === '' || $checkout_url === '')
         {
-            $success_url = $this->ci->config->item('stripe_success_url', 'stripe');
-            $cancel_url = $this->ci->config->item('stripe_cancel_url', 'stripe');
+            $success_url = trim((string) $this->ci->config->item('stripe_success_url', 'stripe'));
+            $cancel_url = trim((string) $this->ci->config->item('stripe_cancel_url', 'stripe'));
+            if ($success_url === '' || $cancel_url === '')
+            {
+                return array(false, 'stripe_checkout_urls_not_configured');
+            }
             $metadata = array(
                 'invoice_id' => (string) (int) $inv['id'],
                 'order_id' => (string) $order_id,
                 'user_id' => (string) (int) $actor_user->id,
             );
 
-            $session = \Stripe\Checkout\Session::create(array(
-                'mode' => 'payment',
-                'success_url' => $success_url,
-                'cancel_url' => $cancel_url,
-                'metadata' => $metadata,
-                'line_items' => $line_items,
-            ));
+            try
+            {
+                $session = \Stripe\Checkout\Session::create(array(
+                    'mode' => 'payment',
+                    'success_url' => $success_url,
+                    'cancel_url' => $cancel_url,
+                    'metadata' => $metadata,
+                    'line_items' => $line_items,
+                ));
+            }
+            catch (\Throwable $e)
+            {
+                log_message('error', 'Stripe Checkout Session::create failed (invoice pay): ' . $e->getMessage());
+                $hint = $e->getMessage();
+                if ($e instanceof \Stripe\Exception\ApiErrorException)
+                {
+                    $code = method_exists($e, 'getStripeCode') ? (string) $e->getStripeCode() : '';
+                    if ($code !== '')
+                    {
+                        $hint = $code . ': ' . $hint;
+                    }
+                }
+
+                return array(false, 'stripe_checkout_failed: ' . $hint);
+            }
 
             $session_id = (string) $session->id;
             $checkout_url = isset($session->url) ? (string) $session->url : '';
 
-            $this->ci->order_model->update_row($order_id, array(
+            if ( ! $this->ci->order_model->update_row($order_id, array(
                 'stripe_session_id' => $session_id,
                 'updated_by' => (int) $actor_user->id,
-            ));
+            )))
+            {
+                log_message('error', 'order update stripe_session_id failed order_id=' . $order_id);
+
+                return array(false, 'failed_to_save_checkout_session');
+            }
         }
 
-        $this->ci->stripe_log_model->log_event('invoice.payment.session.created', array(
+        $this->ci->stripe_log_model->log_event_safe('invoice.payment.session.created', array(
             'invoice_id' => (int) $inv['id'],
             'order_id' => $order_id,
             'session_id' => $session_id,

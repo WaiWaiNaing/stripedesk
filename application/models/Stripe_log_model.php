@@ -33,15 +33,19 @@ class Stripe_log_model extends MY_Model
         ));
     }
 
-    /**
-     * Reserve processing for a Stripe webhook event (idempotency by event_id).
-     *
-     * @param string      $event_id   evt_… from Stripe; empty skips deduplication
-     * @param string      $event_type
-     * @param object|array $event_obj full event for payload
-     *
-     * @return array{action:string,log_id:?int} action = skip_processed|proceed
-     */
+    public function log_event_safe($event_type, $payload)
+    {
+        try
+        {
+            return $this->log_event($event_type, $payload);
+        }
+        catch (\Throwable $e)
+        {
+            log_message('error', 'stripe_logs log_event_safe skipped: ' . $e->getMessage());
+
+            return false;
+        }
+    }
     public function reserve_webhook_event($event_id, $event_type, $event_obj)
     {
         $event_id = trim((string) $event_id);

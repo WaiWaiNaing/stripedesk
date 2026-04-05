@@ -7,6 +7,7 @@ class Receipt_model extends MY_Model
 
     protected $allowed_fields = array(
         'invoice_id',
+        'currency_id',
         'receipt_number',
         'stripe_payment_intent',
         'amount_paid',

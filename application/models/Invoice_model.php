@@ -7,6 +7,7 @@ class Invoice_model extends MY_Model
 
     protected $allowed_fields = array(
         'order_id',
+        'currency_id',
         'invoice_number',
         'total_amount',
         'status',

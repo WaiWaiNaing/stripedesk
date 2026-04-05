@@ -42,42 +42,60 @@ final class Stripe_webhook_service
         }
 
         $type = isset($event->type) ? (string) $event->type : 'unknown';
-        $this->ci->stripe_log_model->log_event($type, $event);
+        $event_id = isset($event->id) ? (string) $event->id : '';
 
-        if ($type === 'checkout.session.completed')
+        $reserved = $this->ci->stripe_log_model->reserve_webhook_event($event_id, $type, $event);
+        if ($reserved['action'] === 'skip_processed')
         {
-            $session = $event->data->object;
-            $reason = Checkout_session_fulfillment_service::apply($this->ci, $session);
-            if ($reason === 'no_order_id')
+            return array(true, 200, 'duplicate_event');
+        }
+        $log_id = isset($reserved['log_id']) ? (int) $reserved['log_id'] : 0;
+
+        try
+        {
+            if ($type === 'checkout.session.completed')
             {
-                return array(true, 200, 'no_order_id');
+                require_once APPPATH . 'controllers/Webhook.php';
+                $session = $event->data->object;
+                $reason = \Webhook::_fulfill_order($this->ci, $session);
+                if ($reason === 'no_order_id')
+                {
+                    return array(true, 200, 'no_order_id');
+                }
+                if ($reason === 'order_not_found')
+                {
+                    return array(true, 200, 'order_not_found');
+                }
             }
-            if ($reason === 'order_not_found')
+            elseif ($type === 'checkout.session.expired')
             {
-                return array(true, 200, 'order_not_found');
+                $session = $event->data->object;
+                $metadata = isset($session->metadata) ? $session->metadata : null;
+                $order_id = $metadata && isset($metadata->order_id) ? (int) $metadata->order_id : 0;
+                $cart_id = $metadata && isset($metadata->cart_id) ? (int) $metadata->cart_id : 0;
+                $meta_user_id = $metadata && isset($metadata->user_id) ? (int) $metadata->user_id : 0;
+                if ($order_id > 0)
+                {
+                    $this->ci->order_model->update_row($order_id, array('status' => 'cancelled'));
+                }
+                if ($cart_id > 0)
+                {
+                    $cart = $this->ci->cart_model->find($cart_id);
+                    if ($cart && ($meta_user_id < 1 || (int) $cart->user_id === (int) $meta_user_id))
+                    {
+                        $this->ci->cart_model->update_row($cart_id, array(
+                            'status' => 'expired',
+                            'updated_by' => $meta_user_id > 0 ? (int) $meta_user_id : null,
+                        ));
+                    }
+                }
             }
         }
-        elseif ($type === 'checkout.session.expired')
+        finally
         {
-            $session = $event->data->object;
-            $metadata = isset($session->metadata) ? $session->metadata : null;
-            $order_id = $metadata && isset($metadata->order_id) ? (int) $metadata->order_id : 0;
-            $cart_id = $metadata && isset($metadata->cart_id) ? (int) $metadata->cart_id : 0;
-            $meta_user_id = $metadata && isset($metadata->user_id) ? (int) $metadata->user_id : 0;
-            if ($order_id > 0)
+            if ($log_id > 0)
             {
-                $this->ci->order_model->update_row($order_id, array('status' => 'cancelled'));
-            }
-            if ($cart_id > 0)
-            {
-                $cart = $this->ci->cart_model->find($cart_id);
-                if ($cart && ($meta_user_id < 1 || (int) $cart->user_id === (int) $meta_user_id))
-                {
-                    $this->ci->cart_model->update_row($cart_id, array(
-                        'status' => 'expired',
-                        'updated_by' => $meta_user_id > 0 ? (int) $meta_user_id : null,
-                    ));
-                }
+                $this->ci->stripe_log_model->mark_processed($log_id);
             }
         }
 

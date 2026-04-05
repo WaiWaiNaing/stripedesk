@@ -61,12 +61,14 @@ CREATE TABLE orders (
     currency_id INT NOT NULL DEFAULT 1,
     status ENUM('pending', 'paid', 'cancelled', 'failed') DEFAULT 'pending',
     stripe_session_id VARCHAR(255) NULL,
+    stripe_payment_intent VARCHAR(255) NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_by INT NULL,
     updated_by INT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP NULL DEFAULT NULL,
     KEY idx_orders_stripe_session_id (stripe_session_id),
+    KEY idx_orders_stripe_payment_intent (stripe_payment_intent),
     KEY idx_orders_status (status),
     KEY idx_orders_deleted_at (deleted_at),
     KEY idx_orders_currency_id (currency_id),
@@ -93,6 +95,7 @@ CREATE TABLE order_items (
 CREATE TABLE invoices (
     id INT AUTO_INCREMENT PRIMARY KEY,
     order_id INT NOT NULL,
+    currency_id INT NOT NULL DEFAULT 1,
     invoice_number VARCHAR(50) NOT NULL,
     total_amount DECIMAL(10, 2) NOT NULL,
     status ENUM('pending', 'unpaid', 'paid', 'void') DEFAULT 'unpaid',
@@ -106,12 +109,15 @@ CREATE TABLE invoices (
     UNIQUE KEY invoices_invoice_number_unique (invoice_number),
     KEY idx_invoices_status (status),
     KEY idx_invoices_deleted_at (deleted_at),
-    CONSTRAINT invoices_order_id_fk FOREIGN KEY (order_id) REFERENCES orders (id)
+    KEY idx_invoices_currency_id (currency_id),
+    CONSTRAINT invoices_order_id_fk FOREIGN KEY (order_id) REFERENCES orders (id),
+    CONSTRAINT invoices_currency_id_fk FOREIGN KEY (currency_id) REFERENCES currencies (id)
 );
 
 CREATE TABLE receipts (
     id INT AUTO_INCREMENT PRIMARY KEY,
     invoice_id INT NOT NULL,
+    currency_id INT NOT NULL DEFAULT 1,
     receipt_number VARCHAR(50) NOT NULL,
     stripe_payment_intent VARCHAR(255) NULL,
     amount_paid DECIMAL(10, 2) NOT NULL,
@@ -125,18 +131,23 @@ CREATE TABLE receipts (
     UNIQUE KEY receipts_receipt_number_unique (receipt_number),
     KEY idx_receipts_stripe_payment_intent (stripe_payment_intent),
     KEY idx_receipts_deleted_at (deleted_at),
-    CONSTRAINT receipts_invoice_id_fk FOREIGN KEY (invoice_id) REFERENCES invoices (id)
+    KEY idx_receipts_currency_id (currency_id),
+    CONSTRAINT receipts_invoice_id_fk FOREIGN KEY (invoice_id) REFERENCES invoices (id),
+    CONSTRAINT receipts_currency_id_fk FOREIGN KEY (currency_id) REFERENCES currencies (id)
 );
 
 CREATE TABLE stripe_logs (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    event_id VARCHAR(255) NULL,
     event_type VARCHAR(100),
     payload JSON,
+    processed TINYINT(1) NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_by INT NULL,
     updated_by INT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP NULL DEFAULT NULL,
+    UNIQUE KEY uniq_stripe_logs_event_id (event_id),
     KEY idx_stripe_logs_created_at (created_at),
     KEY idx_stripe_logs_event_type (event_type),
     KEY idx_stripe_logs_deleted_at (deleted_at)

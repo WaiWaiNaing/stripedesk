@@ -11,6 +11,7 @@ class Order_model extends MY_Model
         'currency_id',
         'status',
         'stripe_session_id',
+        'stripe_payment_intent',
     );
 
     public function get_by_user($user_id, $limit = null, $offset = 0)

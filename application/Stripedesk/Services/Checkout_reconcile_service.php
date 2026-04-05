@@ -16,6 +16,7 @@ final class Checkout_reconcile_service
         $this->ci->config->load('stripe', true);
         $this->ci->load->model('order_model');
         $this->ci->load->model('invoice_model');
+        $this->ci->load->model('receipt_model');
         $this->ci->load->model('stripe_log_model');
     }
 
@@ -151,9 +152,15 @@ final class Checkout_reconcile_service
             'state' => 'paid',
             'order_id' => $order_id,
             'invoice_id' => $invoice_id > 0 ? $invoice_id : null,
+            'receipt_id' => null,
         );
         if ($invoice_id > 0)
         {
+            $rec = $this->ci->receipt_model->get_by_invoice_id($invoice_id);
+            if ($rec && ( ! isset($rec->deleted_at) || $rec->deleted_at === null))
+            {
+                $out['receipt_id'] = (int) $rec->id;
+            }
             $inv_svc = new Invoice_api_service($this->ci);
             $detail = $inv_svc->detail_for_actor($user, $invoice_id);
             if ($detail instanceof \Stripedesk\Dto\Invoice_detail_dto)

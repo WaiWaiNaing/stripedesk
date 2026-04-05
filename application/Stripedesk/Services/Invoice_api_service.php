@@ -18,6 +18,7 @@ final class Invoice_api_service
         $this->ci->load->model('invoice_model');
         $this->ci->load->model('order_model');
         $this->ci->load->model('order_item_model');
+        $this->ci->load->model('receipt_model');
         $this->ci->load->model('currency_model');
         $this->ci->load->model('stripe_log_model');
     }
@@ -281,7 +282,17 @@ final class Invoice_api_service
             $order->created_at
         );
 
-        return new Invoice_detail_dto($invoice_dto, $order_dto, $lines);
+        $receipt_stub = null;
+        $rec = $this->ci->receipt_model->get_by_invoice_id((int) $row->id);
+        if ($rec && ( ! isset($rec->deleted_at) || $rec->deleted_at === null))
+        {
+            $receipt_stub = array(
+                'id' => (int) $rec->id,
+                'receipt_number' => (string) $rec->receipt_number,
+            );
+        }
+
+        return new Invoice_detail_dto($invoice_dto, $order_dto, $lines, $receipt_stub);
     }
 
     private function row_to_summary_dto($row)

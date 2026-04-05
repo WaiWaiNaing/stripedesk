@@ -7,12 +7,17 @@ final class Invoice_detail_dto
     private $invoice;
     private $order;
     private $lines;
+    private $receipt;
 
-    public function __construct(Invoice_summary_dto $invoice, Order_summary_dto $order, array $lines)
+    /**
+     * @param array|null $receipt When set: array with keys id, receipt_number (payment receipt if issued)
+     */
+    public function __construct(Invoice_summary_dto $invoice, Order_summary_dto $order, array $lines, $receipt = null)
     {
         $this->invoice = $invoice;
         $this->order = $order;
         $this->lines = $lines;
+        $this->receipt = is_array($receipt) ? $receipt : null;
     }
 
     public function to_array()
@@ -26,10 +31,16 @@ final class Invoice_detail_dto
             }
         }
 
-        return array(
+        $out = array(
             'invoice' => $this->invoice->to_array(),
             'order' => $this->order->to_array(),
             'lines' => $line_arrays,
         );
+        if ($this->receipt !== null)
+        {
+            $out['receipt'] = $this->receipt;
+        }
+
+        return $out;
     }
 }

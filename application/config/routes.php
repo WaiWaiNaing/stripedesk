@@ -17,6 +17,8 @@ $route['api/v1/invoices'] = 'api/invoices/index';
 $route['api/v1/invoices/(:num)/pay'] = 'api/invoices/pay/$1';
 $route['api/v1/invoices/(:num)/status'] = 'api/invoices/update_status/$1';
 $route['api/v1/invoices/(:num)'] = 'api/invoices/show/$1';
+$route['api/v1/users/(:num)/receipts'] = 'api/receipts/index_for_user/$1';
+$route['api/v1/receipts/(:num)/pdf'] = 'api/receipts/pdf/$1';
 $route['api/v1/receipts/(:num)'] = 'api/receipts/show/$1';
 $route['api/v1/products'] = 'api/products/index';
 

@@ -23,6 +23,8 @@
 13. [Email (SMTP for OTP)](#email-smtp-for-otp)
 14. [Project Structure](#project-structure)
 15. [Quick Reference](#quick-reference)
+16. [Future Improvements](#future-improvements)
+17. [Known Limitations](#known-limitations)
 
 ---
 
@@ -715,6 +717,50 @@ open http://localhost:8081
 # Start Ngrok tunnel for Stripe webhooks
 ngrok http 8081
 ```
+
+---
+
+## Future Improvements
+
+The following roadmap items respond directly to the [Known Limitations](#known-limitations) summarized at the end of this README. They are ordered by **priority** (highest impact first). **Area** groups them for planning; several rows span more than one theme.
+
+| Priority | Area | Improvement | Why | Approach |
+|---------:|------|-------------|-----|----------|
+| 1 | Security | Enforce rate limiting on login and sensitive API actions | Reduces brute-force and automated abuse called out in the security enhancements table | Configure Nginx `limit_req` (or equivalent) per IP; optionally add Redis-backed throttling in application hooks for auth routes |
+| 2 | Security | Short-lived access tokens plus a refresh-token flow | Addresses long-lived JWT abuse and mobile session needs described in Security §6 and Mobile API Considerations | Add `POST /api/v1/auth/refresh`, store refresh tokens server-side or as httpOnly cookies, shorten access TTL, document in OpenAPI |
+| 3 | Security | Resolve user role from the database on each protected request | Mitigates privilege escalation when tokens are stale or tampered (Security §6) | After JWT validation, load `users.role` (and soft-delete flags) by subject id before enforcing admin/user checks |
+| 4 | Features | Cursor or offset pagination on all list endpoints | Full result sets do not scale for clients or databases (Mobile API Considerations) | Standardize `page`/`per_page` (or cursor), return `meta.total` / `meta.last_page`, apply `LIMIT`/`OFFSET` in models |
+| 5 | Operations | Offload OTP and other outbound email to a background queue | Synchronous PHP-FPM workers exhaust under load when SMTP is slow (CI3 limitations table) | Introduce a queue (Redis, database-backed jobs, or managed worker); `Otp_mailer` invoked from a consumer process |
+| 6 | Security | Redact card data and PII before persisting webhook payloads | Sensitive data in logs is called out as a risk (Security §6) | Sanitize `stripe_logs` writes in `Stripe_log_model` / webhook path—strip or hash fields before `json_encode` |
+| 7 | Security | Harden browser session and cookie settings for any HTML flows | Session hijacking mitigations are listed as recommendations, not defaults everywhere | Enable `sess_match_ip` where appropriate; enforce HTTPS, `HttpOnly`, and `SameSite` on session and auth cookies in production |
+| 8 | Features | Rely on production transactional email only; never return OTPs in API JSON | OTP-over-JSON exists only for dev when SMTP is blocked ([OTP verification & SMTP](#otp-verification--smtp-production-note)) | Configure `MAIL_*` with a transactional provider; keep `OTP_DEV_RETURN_CODE=false`; monitor delivery |
+| 9 | Operations | Automate OpenAPI accuracy checks in CI | File-driven spec can drift from code (Limitations of CodeIgniter 3 table) | Add a pipeline step that validates `public/docs/openapi.yaml` or diff-tests sample responses against the spec |
+| 10 | Database / Schema | Add and maintain indexes aligned with paginated, scoped list queries | Pagination without supporting indexes shifts cost to the database as volumes grow | Analyze `WHERE`/`ORDER BY` for invoices, orders, receipts, admin lists; add composite indexes (e.g. ownership + `id DESC`) |
+| 11 | Features | Optional post-payment HTML receipt email | README notes there is no HTML receipt email after payment—only API/PDF ([Stripe Test Mode Walkthrough](#stripe-test-mode-walkthrough)) | After successful fulfillment, enqueue templated email using existing `MAIL_*` configuration |
+| 12 | Operations | Right-size PHP-FPM pools and horizontal capacity | Synchronous FPM is a concurrency bottleneck under spike traffic | Tune `pm.max_children` and related settings; add app servers behind a load balancer with shared session or stateless JWT |
+| 13 | Features | Server-side hook to trigger push notifications after payment | Mobile section recommends push instead of polling for payment confirmation | After `checkout.session.completed` handling, invoke an adapter (FCM/APNs) with user device tokens stored out of band |
+| 14 | Operations | Plan framework and PHP runtime upgrade | CI3 on PHP 7.x limits modern language features and long-term support (Limitations table) | Evaluate CodeIgniter 4 or Laravel; migrate routing, models, and services incrementally with parity tests |
+| 15 | Security | Document and enforce HTTPS; optional certificate pinning for native clients | High-security mobile deployments call for TLS and pinning ([Mobile API Considerations](#mobile-api-considerations)) | Terminate TLS at the edge with valid certs; publish mobile security guidance for pinning public keys |
+
+---
+
+## Known Limitations
+
+This section consolidates constraints already described elsewhere in this README (Security §6, Mobile API Considerations, CI3 limitations, OTP/SMTP, and checkout email behaviour). It is the basis for [Future Improvements](#future-improvements) above.
+
+- **Authentication tokens**: Access JWTs are long-lived and there is no refresh endpoint; mobile and high-security clients must plan around expiry and re-login until a refresh flow exists.
+- **Authorization freshness**: Tokens carry claims that may not be re-checked against the database on every request; role changes or revocations may not take effect until the token expires unless endpoints add explicit checks.
+- **Abuse prevention**: Application-level rate limiting for login and sensitive routes is not built in; infrastructure-level throttling is suggested but not shipped by default.
+- **Sessions and cookies**: Additional hardening (e.g. IP matching, strict cookie flags) is recommended for sensitive deployments rather than enforced uniformly.
+- **Logs**: Webhook and event payloads logged to `stripe_logs` may contain sensitive fields if not redacted before insert.
+- **Output encoding**: XSS is mitigated by using `htmlspecialchars()` on user-supplied output where applied; all HTML surfaces must maintain that discipline.
+- **API lists**: List endpoints return full result sets without pagination metadata; large tenants or mobile clients may see heavy payloads.
+- **Documentation**: OpenAPI lives in `public/docs/openapi.yaml` and can diverge from the running API if not maintained with code changes.
+- **Concurrency model**: PHP-FPM serves requests synchronously; slow SMTP or heavy handlers tie up workers unless work is moved to a queue or pools are scaled.
+- **Platform**: CodeIgniter 3 targets PHP 7.x; PHP 8+ features and some ecosystem tooling are unavailable without migrating frameworks.
+- **Real-time**: There is no WebSocket or SSE server; real-time behaviour depends on Stripe webhooks and client polling or push infrastructure outside this repo.
+- **Email and OTP**: Some hosts block SMTP; a development-only flag can expose OTPs in JSON responses, which is inappropriate for production. There is no HTML receipt email after payment—receipts are exposed via the API and PDF download.
+- **Mobile and native payments**: Native apps would need refresh tokens, pagination, push integration, and optionally Stripe’s mobile SDKs with Payment Intents; the default integration is Checkout in a browser.
 
 ---
 
